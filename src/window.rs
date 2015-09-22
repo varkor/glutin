@@ -14,6 +14,7 @@ use MouseCursor;
 use PixelFormat;
 use Robustness;
 use native_monitor::NativeMonitorId;
+use WindowID;
 
 use gl_common;
 use libc;
@@ -164,7 +165,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets the parent window
-    pub fn with_parent(mut self, parent: WindowID) -> WindowBuilder<'a> {
+    pub fn with_parent(mut self, parent: Option<WindowID>) -> WindowBuilder<'a> {
         self.attribs.parent = parent;
         self
     }
@@ -615,7 +616,3 @@ impl MonitorID {
         id.get_dimensions()
     }
 }
-
-
-/// Identifier for a display system window.
-pub type WindowID = *mut libc::c_void;
