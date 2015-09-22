@@ -61,7 +61,7 @@ extern crate x11_dl;
 pub use events::*;
 pub use headless::{HeadlessRendererBuilder, HeadlessContext};
 #[cfg(feature = "window")]
-pub use window::{WindowBuilder, Window, WindowID, WindowProxy, PollEventsIterator, WaitEventsIterator};
+pub use window::{WindowBuilder, Window, WindowProxy, PollEventsIterator, WaitEventsIterator};
 #[cfg(feature = "window")]
 pub use window::{AvailableMonitorsIter, MonitorID, get_available_monitors, get_primary_monitor};
 #[cfg(feature = "window")]
@@ -354,6 +354,23 @@ pub struct PixelFormat {
     pub srgb: bool,
 }
 
+/// A wrapper for a native window pointer.
+#[derive(Debug, Clone)]
+pub struct WindowID {
+    pub window: *mut libc::c_void,
+}
+
+impl WindowID {
+    pub fn new(window: *mut libc::c_void) -> WindowID {
+        WindowID {
+            window: window
+        }
+    }
+}
+
+unsafe impl Send for WindowID {}
+unsafe impl Sync for WindowID {}
+
 /// Attributes
 // FIXME: remove `pub` (https://github.com/rust-lang/rust/issues/23585)
 #[derive(Clone)]
@@ -382,7 +399,7 @@ pub struct BuilderAttribs<'a> {
     transparent: bool,
     decorations: bool,
     multitouch: bool,
-    parent: *mut libc::c_void,
+    parent: Option<WindowID>,
 }
 
 impl BuilderAttribs<'static> {
@@ -410,7 +427,7 @@ impl BuilderAttribs<'static> {
             transparent: false,
             decorations: true,
             multitouch: false,
-            parent: std::ptr::null_mut(),
+            parent: None,
         }
     }
 }

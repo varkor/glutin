@@ -52,6 +52,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
                                        wparam: winapi::WPARAM, lparam: winapi::LPARAM)
                                        -> winapi::LRESULT
 {
+    let wakeup_msg = *super::WAKEUP_MSG_ID;
     match msg {
         winapi::WM_DESTROY => {
             use events::Event::Closed;
@@ -266,6 +267,12 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             }
 
             shell32::DragFinish(hdrop);
+            0
+        },
+
+        x if x == wakeup_msg => {
+            use events::Event::Awakened;
+            send_event(window, Awakened);
             0
         },
 

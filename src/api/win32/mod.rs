@@ -36,6 +36,10 @@ mod event;
 mod init;
 mod monitor;
 
+lazy_static! {
+    static ref WAKEUP_MSG_ID: u32 = unsafe { user32::RegisterWindowMessageA("Glutin::EventID".as_ptr() as *const i8) };
+}
+
 /// The Win32 implementation of the main `Window` object.
 pub struct Window {
     /// Main handle for the window.
@@ -73,11 +77,15 @@ impl Drop for WindowWrapper {
 }
 
 #[derive(Clone)]
-pub struct WindowProxy;
+pub struct WindowProxy {
+    hwnd: winapi::HWND,
+}
 
 impl WindowProxy {
     pub fn wakeup_event_loop(&self) {
-        unimplemented!()
+        unsafe {
+            user32::PostMessageA(self.hwnd, *WAKEUP_MSG_ID, 0, 0);
+        }
     }
 }
 
@@ -184,7 +192,7 @@ impl Window {
     }
 
     pub fn create_window_proxy(&self) -> WindowProxy {
-        WindowProxy
+        WindowProxy { hwnd: self.window.0 }
     }
 
     /// See the docs in the crate root file.
@@ -202,7 +210,9 @@ impl Window {
     }
 
     pub fn platform_display(&self) -> *mut libc::c_void {
-        unimplemented!()
+        // XXX FIXME -- do this right somehow
+        ptr::null_mut()
+        //unimplemented!()
     }
 
     pub fn platform_window(&self) -> *mut libc::c_void {
@@ -213,7 +223,8 @@ impl Window {
     }
 
     pub fn set_cursor(&self, _cursor: MouseCursor) {
-        unimplemented!()
+        // XXX FIXME -- ignore this for now, we need to implement this
+        //unimplemented!()
     }
 
     pub fn set_cursor_state(&self, state: CursorState) -> Result<(), String> {
