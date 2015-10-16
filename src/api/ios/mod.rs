@@ -64,6 +64,7 @@
 
 use std::collections::VecDeque;
 use std::ptr;
+use std::io;
 use std::mem;
 use std::ffi::CString;
 
@@ -71,7 +72,8 @@ use libc;
 use objc::runtime::{Class, BOOL, YES, NO };
 
 use native_monitor::NativeMonitorId;
-use { Api, PixelFormat, CreationError, BuilderAttribs, GlContext, CursorState, MouseCursor, Event };
+use { Api, PixelFormat, CreationError, GlContext, CursorState, MouseCursor, Event };
+use { PixelFormatRequirements, GlAttributes, WindowAttributes, ContextError };
 use CreationError::OsError;
 
 mod delegate;
@@ -102,7 +104,8 @@ use self::ffi::{
 
 static mut jmpbuf: [libc::c_int;27] = [0;27];
 
-pub struct MonitorID;
+#[derive(Clone)]
+pub struct MonitorId;
 
 pub struct Window {
     eagl_context: id,
@@ -132,6 +135,7 @@ struct DelegateState {
 
 
 impl DelegateState {
+    #[inline]
     fn new(window: id, controller:id, view: id, size: (u32,u32), scale: f32) -> DelegateState {
         DelegateState {
             events_queue: VecDeque::new(),
@@ -144,26 +148,30 @@ impl DelegateState {
     }
 }
 
-
-pub fn get_available_monitors() -> VecDeque<MonitorID> {
+#[inline]
+pub fn get_available_monitors() -> VecDeque<MonitorId> {
     let mut rb = VecDeque::new();
-    rb.push_back(MonitorID);
+    rb.push_back(MonitorId);
     rb
 }
 
-pub fn get_primary_monitor() -> MonitorID {
-    MonitorID
+#[inline]
+pub fn get_primary_monitor() -> MonitorId {
+    MonitorId
 }
 
-impl MonitorID {
+impl MonitorId {
+    #[inline]
     pub fn get_name(&self) -> Option<String> {
         Some("Primary".to_string())
     }
 
+    #[inline]
     pub fn get_native_identifier(&self) -> NativeMonitorId {
         NativeMonitorId::Unavailable
     }
 
+    #[inline]
     pub fn get_dimensions(&self) -> (u32, u32) {
         unimplemented!()
     }
@@ -172,7 +180,7 @@ impl MonitorID {
 
 impl Window {
 
-    pub fn new(builder: BuilderAttribs) -> Result<Window, CreationError> {
+    pub fn new(builder: &WindowAttributes, _: &PixelFormatRequirements, _: &GlAttributes<&Window>) -> Result<Window, CreationError> {
         unsafe {
             if setjmp(mem::transmute(&mut jmpbuf)) != 0 {
                 let app: id = msg_send![Class::get("UIApplication").unwrap(), sharedApplication];
@@ -200,7 +208,7 @@ impl Window {
         Err(CreationError::OsError(format!("Couldn't create UIApplication")))
     }
 
-    unsafe fn init_context(&mut self, builder: BuilderAttribs) {
+    unsafe fn init_context(&mut self, builder: &WindowAttributes) {
         let draw_props: id = msg_send![Class::get("NSDictionary").unwrap(), alloc];
             let draw_props: id = msg_send![draw_props,
                     initWithObjects:
@@ -215,7 +223,7 @@ impl Window {
                         ].as_ptr()
                     count: 2
             ];
-        self.make_current();
+        let _ = self.make_current();
 
         let state = &mut *self.delegate_state;
 
@@ -259,85 +267,101 @@ impl Window {
         }
     }
 
+    #[inline]
     fn start_app() {
         unsafe {
             UIApplicationMain(0, ptr::null(), nil, NSString::alloc(nil).init_str("AppDelegate"));
         }
     }
 
-    pub fn is_closed(&self) -> bool {
-        false
-    }
-
+    #[inline]
     pub fn set_title(&self, _: &str) {
     }
 
+    #[inline]
     pub fn show(&self) {
     }
 
+    #[inline]
     pub fn hide(&self) {
     }
 
+    #[inline]
     pub fn get_position(&self) -> Option<(i32, i32)> {
         None
     }
 
+    #[inline]
     pub fn set_position(&self, _x: i32, _y: i32) {
     }
 
+    #[inline]
     pub fn get_inner_size(&self) -> Option<(u32, u32)> {
         unsafe { Some((&*self.delegate_state).size) }
     }
 
+    #[inline]
     pub fn get_outer_size(&self) -> Option<(u32, u32)> {
         self.get_inner_size()
     }
 
+    #[inline]
     pub fn set_inner_size(&self, _x: u32, _y: u32) {
     }
 
+    #[inline]
     pub fn poll_events(&self) -> PollEventsIterator {
         PollEventsIterator {
             window: self
         }
     }
 
+    #[inline]
     pub fn wait_events(&self) -> WaitEventsIterator {
         WaitEventsIterator {
             window: self
         }
     }
 
+    #[inline]
     pub fn platform_display(&self) -> *mut libc::c_void {
         unimplemented!();
     }
 
+    #[inline]
     pub fn platform_window(&self) -> *mut libc::c_void {
         unimplemented!()
     }
 
+    #[inline]
     pub fn get_pixel_format(&self) -> PixelFormat {
         unimplemented!();
     }
 
+    #[inline]
     pub fn set_window_resize_callback(&mut self, _: Option<fn(u32, u32)>) {
     }
 
+    #[inline]
     pub fn set_cursor(&self, _: MouseCursor) {
     }
 
+    #[inline]
     pub fn set_cursor_state(&self, _: CursorState) -> Result<(), String> {
         Ok(())
     }
 
+    #[inline]
     pub fn hidpi_factor(&self) -> f32 {
         unsafe { (&*self.delegate_state) }.scale
     }
 
+    #[inline]
     pub fn set_cursor_position(&self, _x: i32, _y: i32) -> Result<(), ()> {
         unimplemented!();
     }
 
+    #[inline]
     pub fn create_window_proxy(&self) -> WindowProxy {
         WindowProxy
     }
@@ -345,10 +369,17 @@ impl Window {
 }
 
 impl GlContext for Window {
-    unsafe fn make_current(&self) {
-        let _:BOOL = msg_send![Class::get("EAGLContext").unwrap(), setCurrentContext: self.eagl_context];
+    #[inline]
+    unsafe fn make_current(&self) -> Result<(), ContextError> {
+        let res: BOOL = msg_send![Class::get("EAGLContext").unwrap(), setCurrentContext: self.eagl_context];
+        if res == YES {
+            Ok(())
+        } else {
+            Err(ContextError::IoError(io::Error::new(io::ErrorKind::Other, "EAGLContext::setCurrentContext unsuccessful")))
+        }
     }
 
+    #[inline]
     fn is_current(&self) -> bool {
         false
     }
@@ -362,20 +393,31 @@ impl GlContext for Window {
         }
     }
 
-    fn swap_buffers(&self) {
-        unsafe { let _:BOOL = msg_send![self.eagl_context, presentRenderbuffer: gles::RENDERBUFFER]; }
+    #[inline]
+    fn swap_buffers(&self) -> Result<(), ContextError> {
+        unsafe {
+            let res: BOOL = msg_send![self.eagl_context, presentRenderbuffer: gles::RENDERBUFFER];
+            if res == YES {
+                Ok(())
+            } else {
+                Err(ContextError::IoError(io::Error::new(io::ErrorKind::Other, "EAGLContext.presentRenderbuffer unsuccessful")))
+            }
+        }
     }
 
+    #[inline]
     fn get_api(&self) -> Api {
         unimplemented!()
     }
 
+    #[inline]
     fn get_pixel_format(&self) -> PixelFormat {
         unimplemented!()
     }
 }
 
 impl WindowProxy {
+    #[inline]
     pub fn wakeup_event_loop(&self) {
         unimplemented!()
     }
@@ -385,6 +427,7 @@ impl WindowProxy {
 impl<'a> Iterator for WaitEventsIterator<'a> {
     type Item = Event;
 
+    #[inline]
     fn next(&mut self) -> Option<Event> {
         loop {
             if let Some(ev) = self.window.poll_events().next() {

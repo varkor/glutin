@@ -11,10 +11,6 @@ mod support;
 #[cfg(target_os = "android")]
 android_start!(main);
 
-#[cfg(not(feature = "window"))]
-fn main() { println!("This example requires glutin to be compiled with the `window` feature"); }
-
-#[cfg(feature = "window")]
 fn main() {
     // enumerating monitors
     let monitor = {
@@ -40,14 +36,14 @@ fn main() {
         .build()
         .unwrap();
 
-    unsafe { window.make_current() };
+    let _ = unsafe { window.make_current() };
 
     
     let context = support::load(&window);
 
     for event in window.wait_events() {
         context.draw_frame((0.0, 1.0, 0.0, 1.0));
-        window.swap_buffers();
+        let _ = window.swap_buffers();
 
         println!("{:?}", event);
 

@@ -1,8 +1,9 @@
 use ContextError;
 use CreationError;
 use CreationError::OsError;
-use BuilderAttribs;
+use GlAttributes;
 use GlContext;
+use PixelFormatRequirements;
 use libc;
 use std::ptr;
 
@@ -27,8 +28,9 @@ pub struct HeadlessContext {
 }
 
 impl HeadlessContext {
-    pub fn new(builder: BuilderAttribs) -> Result<HeadlessContext, CreationError> {
-        let (width, height) = builder.dimensions.unwrap_or((1024, 768));
+    pub fn new((width, height): (u32, u32), _pf_reqs: &PixelFormatRequirements,
+               _opengl: &GlAttributes<&HeadlessContext>) -> Result<HeadlessContext, CreationError>
+    {
         let context = unsafe {
             let attributes = [
                 NSOpenGLPFAAccelerated as u32,
@@ -83,10 +85,12 @@ impl GlContext for HeadlessContext {
         Ok(())
     }
 
+    #[inline]
     fn is_current(&self) -> bool {
         unimplemented!()
     }
 
+    #[inline]
     fn get_proc_address(&self, _addr: &str) -> *const libc::c_void {
         let symbol_name: CFString = _addr.parse().unwrap();
         let framework_name: CFString = "com.apple.opengl".parse().unwrap();
@@ -99,14 +103,17 @@ impl GlContext for HeadlessContext {
         symbol as *const libc::c_void
     }
 
+    #[inline]
     fn swap_buffers(&self) -> Result<(), ContextError> {
         Ok(())
     }
 
+    #[inline]
     fn get_api(&self) -> ::Api {
         ::Api::OpenGl
     }
 
+    #[inline]
     fn get_pixel_format(&self) -> PixelFormat {
         unimplemented!();
     }
@@ -116,6 +123,7 @@ unsafe impl Send for HeadlessContext {}
 unsafe impl Sync for HeadlessContext {}
 
 impl Drop for HeadlessContext {
+    #[inline]
     fn drop(&mut self) {
         unsafe {
             gl::DeleteTextures(1, &texture);

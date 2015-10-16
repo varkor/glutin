@@ -1,4 +1,4 @@
-use {Event, BuilderAttribs, MouseCursor};
+use {Event, MouseCursor};
 use CreationError;
 use CreationError::OsError;
 use libc;
@@ -12,19 +12,22 @@ use std::sync::{Arc, Mutex};
 use Api;
 use ContextError;
 use CursorState;
+use GlAttributes;
 use GlContext;
 use GlRequest;
 use PixelFormat;
+use PixelFormatRequirements;
+use WindowAttributes;
 
 use api::glx::Context as GlxContext;
 use api::egl;
 use api::egl::Context as EglContext;
 
-use platform::MonitorID as PlatformMonitorID;
+use platform::MonitorId as PlatformMonitorId;
 
 use super::input::XInputEventHandler;
 use super::{ffi};
-use super::{MonitorID, XConnection};
+use super::{MonitorId, XConnection};
 
 // XOpenIM doesn't seem to be thread-safe
 lazy_static! {      // TODO: use a static mutex when that's possible, and put me back in my function
@@ -295,11 +298,14 @@ pub struct Window {
 }
 
 impl Window {
-    pub fn new(display: &Arc<XConnection>, builder: BuilderAttribs) -> Result<Window, CreationError> {
-        let dimensions = builder.dimensions.unwrap_or((800, 600));
+    pub fn new(display: &Arc<XConnection>, window_attrs: &WindowAttributes,
+               pf_reqs: &PixelFormatRequirements, opengl: &GlAttributes<&Window>)
+               -> Result<Window, CreationError>
+    {
+        let dimensions = window_attrs.dimensions.unwrap_or((800, 600));
 
-        let screen_id = match builder.monitor {
-            Some(PlatformMonitorID::X(MonitorID(_, monitor))) => monitor as i32,
+        let screen_id = match window_attrs.monitor {
+            Some(PlatformMonitorId::X(MonitorId(_, monitor))) => monitor as i32,
             _ => unsafe { (display.xlib.XDefaultScreen)(display.display) },
         };
 
@@ -316,7 +322,7 @@ impl Window {
             // FIXME: `XF86VidModeModeInfo` is missing its `hskew` field. Therefore we point to
             //        `vsyncstart` instead of `vdisplay` as a temporary hack.
 
-            let mode_to_switch_to = if builder.monitor.is_some() {
+            let mode_to_switch_to = if window_attrs.monitor.is_some() {
                 let matching_mode = (0 .. mode_num).map(|i| {
                     let m: ffi::XF86VidModeModeInfo = ptr::read(*modes.offset(i as isize) as *const _); m
                 }).find(|m| m.hdisplay == dimensions.0 as u16 && m.vsyncstart == dimensions.1 as u16);
@@ -348,22 +354,23 @@ impl Window {
             Glx(::api::glx::ContextPrototype<'a>),
             Egl(::api::egl::ContextPrototype<'a>),
         }
-        let builder_clone = builder.clone();
-        let context = match builder.gl_version {
+        let builder_clone_opengl_glx = opengl.clone().map_sharing(|_| unimplemented!());      // FIXME: 
+        let builder_clone_opengl_egl = opengl.clone().map_sharing(|_| unimplemented!());      // FIXME: 
+        let context = match opengl.version {
             GlRequest::Latest | GlRequest::Specific(Api::OpenGl, _) | GlRequest::GlThenGles { .. } => {
                 // GLX should be preferred over EGL, otherwise crashes may occur
                 // on X11 – issue #314
                 if let Some(ref glx) = display.glx {
-                    Prototype::Glx(try!(GlxContext::new(glx.clone(), &display.xlib, &builder_clone, display.display)))
+                    Prototype::Glx(try!(GlxContext::new(glx.clone(), &display.xlib, pf_reqs, &builder_clone_opengl_glx, display.display)))
                 } else if let Some(ref egl) = display.egl {
-                    Prototype::Egl(try!(EglContext::new(egl.clone(), &builder_clone, egl::NativeDisplay::X11(Some(display.display as *const _)))))
+                    Prototype::Egl(try!(EglContext::new(egl.clone(), pf_reqs, &builder_clone_opengl_egl, egl::NativeDisplay::X11(Some(display.display as *const _)))))
                 } else {
                     return Err(CreationError::NotSupported);
                 }
             },
             GlRequest::Specific(Api::OpenGlEs, _) => {
                 if let Some(ref egl) = display.egl {
-                    Prototype::Egl(try!(EglContext::new(egl.clone(), &builder_clone, egl::NativeDisplay::X11(Some(display.display as *const _)))))
+                    Prototype::Egl(try!(EglContext::new(egl.clone(), pf_reqs, &builder_clone_opengl_egl, egl::NativeDisplay::X11(Some(display.display as *const _)))))
                 } else {
                     return Err(CreationError::NotSupported);
                 }
@@ -418,7 +425,7 @@ impl Window {
                 ffi::KeyReleaseMask | ffi::ButtonPressMask |
                 ffi::ButtonReleaseMask | ffi::KeymapStateMask;
             swa.border_pixel = 0;
-            if builder.transparent {
+            if window_attrs.transparent {
                 swa.background_pixel = 0;
             }
             swa.override_redirect = 0;
@@ -427,7 +434,7 @@ impl Window {
 
         let mut window_attributes = ffi::CWBorderPixel | ffi::CWEventMask | ffi::CWColormap;
 
-        if builder.transparent {
+        if window_attrs.transparent {
             window_attributes |= ffi::CWBackPixel;
         }
 
@@ -451,7 +458,7 @@ impl Window {
         };
 
         // set visibility
-        if builder.visible {
+        if window_attrs.visible {
             unsafe {
                 (display.xlib.XMapRaised)(display.display, window);
                 (display.xlib.XFlush)(display.display);
@@ -464,7 +471,7 @@ impl Window {
                 (display.xlib.XInternAtom)(display.display, delete_window, 0)
             );
             (display.xlib.XSetWMProtocols)(display.display, window, &mut wm_delete_window, 1);
-            with_c_str(&*builder.title, |title| {;
+            with_c_str(&*window_attrs.title, |title| {;
                 (display.xlib.XStoreName)(display.display, window, title);
             });
             (display.xlib.XFlush)(display.display);
@@ -512,7 +519,7 @@ impl Window {
 
         // Set ICCCM WM_CLASS property based on initial window title
         unsafe {
-            with_c_str(&*builder.title, |c_name| {
+            with_c_str(&*window_attrs.title, |c_name| {
                 let hint = (display.xlib.XAllocClassHint)();
                 (*hint).res_name = c_name as *mut libc::c_char;
                 (*hint).res_class = c_name as *mut libc::c_char;
@@ -521,7 +528,7 @@ impl Window {
             });
         }
 
-        let is_fullscreen = builder.monitor.is_some();
+        let is_fullscreen = window_attrs.monitor.is_some();
 
         // finish creating the OpenGL context
         let context = match context {
@@ -609,6 +616,7 @@ impl Window {
         }
     }
 
+    #[inline]
     pub fn get_position(&self) -> Option<(i32, i32)> {
         self.get_geometry().map(|(x, y, _, _, _)| (x, y))
     }
@@ -617,45 +625,63 @@ impl Window {
         unsafe { (self.x.display.xlib.XMoveWindow)(self.x.display.display, self.x.window, x as libc::c_int, y as libc::c_int); }
     }
 
+    #[inline]
     pub fn get_inner_size(&self) -> Option<(u32, u32)> {
         self.get_geometry().map(|(_, _, w, h, _)| (w, h))
     }
 
+    #[inline]
     pub fn get_outer_size(&self) -> Option<(u32, u32)> {
         self.get_geometry().map(|(_, _, w, h, b)| (w + b, h + b))       // TODO: is this really outside?
     }
 
+    #[inline]
     pub fn set_inner_size(&self, x: u32, y: u32) {
         unsafe { (self.x.display.xlib.XResizeWindow)(self.x.display.display, self.x.window, x as libc::c_uint, y as libc::c_uint); }
     }
 
+    #[inline]
     pub fn create_window_proxy(&self) -> WindowProxy {
         WindowProxy {
             data: self.x.window_proxy_data.clone()
         }
     }
 
+    #[inline]
     pub fn poll_events(&self) -> PollEventsIterator {
         PollEventsIterator {
             window: self
         }
     }
 
+    #[inline]
     pub fn wait_events(&self) -> WaitEventsIterator {
         WaitEventsIterator {
             window: self
         }
     }
 
+    #[inline]
+    pub fn get_xlib_display(&self) -> *mut libc::c_void {
+        self.x.display.display as *mut libc::c_void
+    }
+
+    #[inline]
     pub fn platform_display(&self) -> *mut libc::c_void {
         self.x.display.display as *mut libc::c_void
     }
 
+    #[inline]
+    pub fn get_xlib_window(&self) -> *mut libc::c_void {
+        self.x.window as *mut libc::c_void
+    }
+
+    #[inline]
     pub fn platform_window(&self) -> *mut libc::c_void {
         self.x.window as *mut libc::c_void
     }
 
-
+    #[inline]
     pub fn set_window_resize_callback(&mut self, _: Option<fn(u32, u32)>) {
     }
 
@@ -750,6 +776,7 @@ impl Window {
         }
     }
 
+    #[inline]
     pub fn hidpi_factor(&self) -> f32 {
         1.0
     }
@@ -764,6 +791,7 @@ impl Window {
 }
 
 impl GlContext for Window {
+    #[inline]
     unsafe fn make_current(&self) -> Result<(), ContextError> {
         match self.x.context {
             Context::Glx(ref ctxt) => ctxt.make_current(),
@@ -772,6 +800,7 @@ impl GlContext for Window {
         }
     }
 
+    #[inline]
     fn is_current(&self) -> bool {
         match self.x.context {
             Context::Glx(ref ctxt) => ctxt.is_current(),
@@ -780,6 +809,7 @@ impl GlContext for Window {
         }
     }
 
+    #[inline]
     fn get_proc_address(&self, addr: &str) -> *const libc::c_void {
         match self.x.context {
             Context::Glx(ref ctxt) => ctxt.get_proc_address(addr),
@@ -788,6 +818,7 @@ impl GlContext for Window {
         }
     }
 
+    #[inline]
     fn swap_buffers(&self) -> Result<(), ContextError> {
         match self.x.context {
             Context::Glx(ref ctxt) => ctxt.swap_buffers(),
@@ -796,6 +827,7 @@ impl GlContext for Window {
         }
     }
 
+    #[inline]
     fn get_api(&self) -> Api {
         match self.x.context {
             Context::Glx(ref ctxt) => ctxt.get_api(),
@@ -804,6 +836,7 @@ impl GlContext for Window {
         }
     }
 
+    #[inline]
     fn get_pixel_format(&self) -> PixelFormat {
         match self.x.context {
             Context::Glx(ref ctxt) => ctxt.get_pixel_format(),

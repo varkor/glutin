@@ -2,12 +2,13 @@
            target_os = "dragonfly", target_os = "freebsd"))]
 #![allow(unused_variables)]
 
-use BuilderAttribs;
 use ContextError;
 use CreationError;
+use GlAttributes;
 use GlContext;
 use GlRequest;
 use PixelFormat;
+use PixelFormatRequirements;
 use Robustness;
 use Api;
 
@@ -43,6 +44,7 @@ pub struct Context {
 }
 
 #[cfg(target_os = "android")]
+#[inline]
 fn get_native_display(egl: &ffi::egl::Egl,
                       native_display: NativeDisplay) -> *const libc::c_void {
     unsafe { egl.GetDisplay(ffi::egl::DEFAULT_DISPLAY as *mut _) }
@@ -158,11 +160,11 @@ impl Context {
     /// This function initializes some things and chooses the pixel format.
     ///
     /// To finish the process, you must call `.finish(window)` on the `ContextPrototype`.
-    pub fn new<'a>(egl: ffi::egl::Egl, builder: &'a BuilderAttribs<'a>,
-                   native_display: NativeDisplay)
+    pub fn new<'a>(egl: ffi::egl::Egl, pf_reqs: &PixelFormatRequirements,
+                   opengl: &'a GlAttributes<&'a Context>, native_display: NativeDisplay)
                    -> Result<ContextPrototype<'a>, CreationError>
     {
-        if builder.sharing.is_some() {
+        if opengl.sharing.is_some() {
             unimplemented!()
         }
 
@@ -197,7 +199,7 @@ impl Context {
 
         // binding the right API and choosing the version
         let (version, api) = unsafe {
-            match builder.gl_version {
+            match opengl.version {
                 GlRequest::Latest => {
                     if egl_version >= (1, 4) {
                         if egl.BindAPI(ffi::egl::OPENGL_API) != 0 {
@@ -246,10 +248,10 @@ impl Context {
         };
 
         let configs = unsafe { try!(enumerate_configs(&egl, display, &egl_version, api, version)) };
-        let (config_id, pixel_format) = try!(builder.choose_pixel_format(configs.into_iter()));
+        let (config_id, pixel_format) = try!(pf_reqs.choose_pixel_format(configs.into_iter()));
 
         Ok(ContextPrototype {
-            builder: builder,
+            opengl: opengl,
             egl: egl,
             display: display,
             egl_version: egl_version,
@@ -277,6 +279,7 @@ impl GlContext for Context {
         }
     }
 
+    #[inline]
     fn is_current(&self) -> bool {
         unsafe { self.egl.GetCurrentContext() == self.context }
     }
@@ -289,6 +292,7 @@ impl GlContext for Context {
         }
     }
 
+    #[inline]
     fn swap_buffers(&self) -> Result<(), ContextError> {
         let ret = unsafe {
             self.egl.SwapBuffers(self.display, self.surface)
@@ -305,10 +309,12 @@ impl GlContext for Context {
         }
     }
 
+    #[inline]
     fn get_api(&self) -> Api {
         self.api
     }
 
+    #[inline]
     fn get_pixel_format(&self) -> PixelFormat {
         self.pixel_format.clone()
     }
@@ -330,7 +336,7 @@ impl Drop for Context {
 }
 
 pub struct ContextPrototype<'a> {
-    builder: &'a BuilderAttribs<'a>,
+    opengl: &'a GlAttributes<&'a Context>,
     egl: ffi::egl::Egl,
     display: ffi::egl::types::EGLDisplay,
     egl_version: (ffi::egl::types::EGLint, ffi::egl::types::EGLint),
@@ -366,9 +372,7 @@ impl<'a> ContextPrototype<'a> {
         self.finish_impl(surface)
     }
 
-    pub fn finish_pbuffer(self) -> Result<Context, CreationError> {
-        let dimensions = self.builder.dimensions.unwrap_or((800, 600));
-
+    pub fn finish_pbuffer(self, dimensions: (u32, u32)) -> Result<Context, CreationError> {
         let attrs = &[
             ffi::egl::WIDTH as libc::c_int, dimensions.0 as libc::c_int,
             ffi::egl::HEIGHT as libc::c_int, dimensions.1 as libc::c_int,
@@ -394,18 +398,18 @@ impl<'a> ContextPrototype<'a> {
             if let Some(version) = self.version {
                 try!(create_context(&self.egl, self.display, &self.egl_version,
                                     &self.extensions, self.api, version, self.config_id,
-                                    self.builder.gl_debug, self.builder.gl_robustness))
+                                    self.opengl.debug, self.opengl.robustness))
 
             } else if self.api == Api::OpenGlEs {
                 if let Ok(ctxt) = create_context(&self.egl, self.display, &self.egl_version,
                                                  &self.extensions, self.api, (2, 0), self.config_id,
-                                                 self.builder.gl_debug, self.builder.gl_robustness)
+                                                 self.opengl.debug, self.opengl.robustness)
                 {
                     ctxt
                 } else if let Ok(ctxt) = create_context(&self.egl, self.display, &self.egl_version,
                                                         &self.extensions, self.api, (1, 0),
-                                                        self.config_id, self.builder.gl_debug,
-                                                        self.builder.gl_robustness)
+                                                        self.config_id, self.opengl.debug,
+                                                        self.opengl.robustness)
                 {
                     ctxt
                 } else {
@@ -415,19 +419,19 @@ impl<'a> ContextPrototype<'a> {
             } else {
                 if let Ok(ctxt) = create_context(&self.egl, self.display, &self.egl_version,
                                                  &self.extensions, self.api, (3, 2), self.config_id,
-                                                 self.builder.gl_debug, self.builder.gl_robustness)
+                                                 self.opengl.debug, self.opengl.robustness)
                 {
                     ctxt
                 } else if let Ok(ctxt) = create_context(&self.egl, self.display, &self.egl_version,
                                                         &self.extensions, self.api, (3, 1),
-                                                        self.config_id, self.builder.gl_debug,
-                                                        self.builder.gl_robustness)
+                                                        self.config_id, self.opengl.debug,
+                                                        self.opengl.robustness)
                 {
                     ctxt
                 } else if let Ok(ctxt) = create_context(&self.egl, self.display, &self.egl_version,
                                                         &self.extensions, self.api, (1, 0),
-                                                        self.config_id, self.builder.gl_debug,
-                                                        self.builder.gl_robustness)
+                                                        self.config_id, self.opengl.debug,
+                                                        self.opengl.robustness)
                 {
                     ctxt
                 } else {

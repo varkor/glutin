@@ -13,21 +13,23 @@ use api::dlopen;
 use api::egl;
 use api::egl::Context as EglContext;
 
-use BuilderAttribs;
 use ContextError;
 use CreationError;
 use Event;
 use PixelFormat;
 use CursorState;
 use MouseCursor;
+use GlAttributes;
 use GlContext;
+use PixelFormatRequirements;
+use WindowAttributes;
 
 use std::collections::VecDeque;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 use std::ffi::CString;
 
-use platform::MonitorID as PlatformMonitorID;
+use platform::MonitorId as PlatformMonitorId;
 
 use self::context::WaylandContext;
 
@@ -44,6 +46,7 @@ lazy_static! {
     };
 }
 
+#[inline]
 pub fn is_available() -> bool {
     WAYLAND_CONTEXT.is_some()
 }
@@ -54,6 +57,7 @@ enum ShellWindow {
 }
 
 impl ShellWindow {
+    #[inline]
     fn get_shell(&mut self) -> ShellGuard {
         match self {
             &mut ShellWindow::Plain(ref mut s) => {
@@ -96,6 +100,8 @@ enum ShellGuard<'a> {
 
 impl<'a> Deref for ShellGuard<'a> {
     type Target = ShellSurface<EGLSurface>;
+
+    #[inline]
     fn deref(&self) -> &ShellSurface<EGLSurface> {
         match self {
             &ShellGuard::Plain(ref s) => s,
@@ -105,6 +111,7 @@ impl<'a> Deref for ShellGuard<'a> {
 }
 
 impl<'a> DerefMut for ShellGuard<'a> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut ShellSurface<EGLSurface> {
         match self {
             &mut ShellGuard::Plain(ref mut s) => s,
@@ -150,6 +157,7 @@ impl Window {
 pub struct WindowProxy;
 
 impl WindowProxy {
+    #[inline]
     pub fn wakeup_event_loop(&self) {
         if let Some(ref ctxt) = *WAYLAND_CONTEXT {
             ctxt.display.sync();
@@ -158,23 +166,25 @@ impl WindowProxy {
 }
 
 #[derive(Clone)]
-pub struct MonitorID {
+pub struct MonitorId {
     output: Arc<Output>
 }
 
-pub fn get_available_monitors() -> VecDeque<MonitorID> {
-    WAYLAND_CONTEXT.as_ref().unwrap().outputs.iter().map(|o| MonitorID::new(o.clone())).collect()
+#[inline]
+pub fn get_available_monitors() -> VecDeque<MonitorId> {
+    WAYLAND_CONTEXT.as_ref().unwrap().outputs.iter().map(|o| MonitorId::new(o.clone())).collect()
 }
-pub fn get_primary_monitor() -> MonitorID {
+#[inline]
+pub fn get_primary_monitor() -> MonitorId {
     match WAYLAND_CONTEXT.as_ref().unwrap().outputs.iter().next() {
-        Some(o) => MonitorID::new(o.clone()),
+        Some(o) => MonitorId::new(o.clone()),
         None => panic!("No monitor is available.")
     }
 }
 
-impl MonitorID {
-    fn new(output: Arc<Output>) -> MonitorID {
-        MonitorID {
+impl MonitorId {
+    fn new(output: Arc<Output>) -> MonitorId {
+        MonitorId {
             output: output
         }
     }
@@ -183,6 +193,7 @@ impl MonitorID {
         Some(format!("{} - {}", self.output.manufacturer(), self.output.model()))
     }
 
+    #[inline]
     pub fn get_native_identifier(&self) -> ::native_monitor::NativeMonitorId {
         ::native_monitor::NativeMonitorId::Unavailable
     }
@@ -241,7 +252,9 @@ impl<'a> Iterator for WaitEventsIterator<'a> {
 }
 
 impl Window {
-    pub fn new(builder: BuilderAttribs) -> Result<Window, CreationError> {
+    pub fn new(window: &WindowAttributes, pf_reqs: &PixelFormatRequirements,
+               opengl: &GlAttributes<&Window>) -> Result<Window, CreationError>
+    {
         use self::wayland::internals::FFI;
 
         let wayland_context = match *WAYLAND_CONTEXT {
@@ -251,7 +264,7 @@ impl Window {
 
         if !is_egl_available() { return Err(CreationError::NotSupported) }
 
-        let (w, h) = builder.dimensions.unwrap_or((800, 600));
+        let (w, h) = window.dimensions.unwrap_or((800, 600));
 
         let surface = EGLSurface::new(
             wayland_context.compositor.create_surface(),
@@ -259,12 +272,12 @@ impl Window {
             h as i32
         );
 
-        let mut shell_window = if let Some(PlatformMonitorID::Wayland(ref monitor)) = builder.monitor {
+        let mut shell_window = if let Some(PlatformMonitorId::Wayland(ref monitor)) = window.monitor {
             let shell_surface = wayland_context.shell.get_shell_surface(surface);
             shell_surface.set_fullscreen(ShellFullscreenMethod::Default, Some(&monitor.output));
             ShellWindow::Plain(shell_surface)
         } else {
-            if builder.decorations {
+            if window.decorations {
                 ShellWindow::Decorated(match DecoratedSurface::new(
                     surface,
                     w as i32,
@@ -291,7 +304,7 @@ impl Window {
             });
             try!(EglContext::new(
                 egl,
-                &builder,
+                pf_reqs, &opengl.clone().map_sharing(|_| unimplemented!()),        // TODO: 
                 egl::NativeDisplay::Wayland(Some(wayland_context.display.ptr() as *const _)))
                 .and_then(|p| p.finish((**shell_window.get_shell()).ptr() as *const _))
             )
@@ -332,19 +345,23 @@ impl Window {
         guard.get_shell().set_title(&ctitle);
     }
 
+    #[inline]
     pub fn show(&self) {
         // TODO
     }
 
+    #[inline]
     pub fn hide(&self) {
         // TODO
     }
 
+    #[inline]
     pub fn get_position(&self) -> Option<(i32, i32)> {
         // not available with wayland
         None
     }
 
+    #[inline]
     pub fn set_position(&self, _x: i32, _y: i32) {
         // not available with wayland
     }
@@ -358,84 +375,102 @@ impl Window {
         Some((w as u32, h as u32))
     }
 
+    #[inline]
     pub fn get_outer_size(&self) -> Option<(u32, u32)> {
         // maybe available if we draw the border ourselves ?
         // but for now, no.
         None
     }
 
+    #[inline]
     pub fn set_inner_size(&self, x: u32, y: u32) {
         self.shell_window.lock().unwrap().resize(x as i32, y as i32, 0, 0)
     }
 
+    #[inline]
     pub fn create_window_proxy(&self) -> WindowProxy {
         WindowProxy
     }
 
+    #[inline]
     pub fn poll_events(&self) -> PollEventsIterator {
         PollEventsIterator {
             window: self
         }
     }
 
+    #[inline]
     pub fn wait_events(&self) -> WaitEventsIterator {
         WaitEventsIterator {
             window: self
         }
     }
 
+    #[inline]
     pub fn set_window_resize_callback(&mut self, callback: Option<fn(u32, u32)>) {
         self.resize_callback = callback;
     }
 
+    #[inline]
     pub fn set_cursor(&self, cursor: MouseCursor) {
         // TODO
     }
 
+    #[inline]
     pub fn set_cursor_state(&self, state: CursorState) -> Result<(), String> {
         // TODO
         Ok(())
     }
 
+    #[inline]
     pub fn hidpi_factor(&self) -> f32 {
         1.0
     }
 
+    #[inline]
     pub fn set_cursor_position(&self, x: i32, y: i32) -> Result<(), ()> {
         // TODO
         Ok(())
     }
 
+    #[inline]
     pub fn platform_display(&self) -> *mut libc::c_void {
         unimplemented!()
     }
 
+    #[inline]
     pub fn platform_window(&self) -> *mut libc::c_void {
         unimplemented!()
     }
 }
 
 impl GlContext for Window {
+    #[inline]
     unsafe fn make_current(&self) -> Result<(), ContextError> {
         self.context.make_current()
     }
 
+    #[inline]
     fn is_current(&self) -> bool {
         self.context.is_current()
     }
 
+    #[inline]
     fn get_proc_address(&self, addr: &str) -> *const libc::c_void {
         self.context.get_proc_address(addr)
     }
 
+    #[inline]
     fn swap_buffers(&self) -> Result<(), ContextError> {
         self.context.swap_buffers()
     }
 
+    #[inline]
     fn get_api(&self) -> ::Api {
         self.context.get_api()
     }
 
+    #[inline]
     fn get_pixel_format(&self) -> PixelFormat {
         self.context.get_pixel_format().clone()
     }

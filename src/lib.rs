@@ -60,22 +60,48 @@ extern crate x11_dl;
 
 pub use events::*;
 pub use headless::{HeadlessRendererBuilder, HeadlessContext};
-#[cfg(feature = "window")]
-pub use window::{WindowBuilder, Window, WindowProxy, PollEventsIterator, WaitEventsIterator};
-#[cfg(feature = "window")]
-pub use window::{AvailableMonitorsIter, MonitorID, get_available_monitors, get_primary_monitor};
-#[cfg(feature = "window")]
+pub use window::{WindowBuilder, WindowProxy, PollEventsIterator, WaitEventsIterator};
+pub use window::{AvailableMonitorsIter, MonitorId, get_available_monitors, get_primary_monitor};
 pub use native_monitor::NativeMonitorId;
 
 use std::io;
+#[cfg(not(target_os = "macos"))]
 use std::cmp::Ordering;
 
 mod api;
 mod platform;
 mod events;
 mod headless;
-#[cfg(feature = "window")]
 mod window;
+
+pub mod os;
+
+/// Represents an OpenGL context and the Window or environment around it.
+///
+/// # Example
+///
+/// ```ignore
+/// let window = Window::new().unwrap();
+///
+/// unsafe { window.make_current() };
+///
+/// loop {
+///     for event in window.poll_events() {
+///         match(event) {
+///             // process events here
+///             _ => ()
+///         }
+///     }
+///
+///     // draw everything here
+///
+///     window.swap_buffers();
+///     std::old_io::timer::sleep(17);
+/// }
+/// ```
+pub struct Window {
+    window: platform::Window,
+}
 
 /// Trait that describes objects that have access to an OpenGL context.
 pub trait GlContext {
@@ -106,11 +132,12 @@ pub trait GlContext {
 }
 
 /// Error that can happen while creating a window or a headless renderer.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum CreationError {
     OsError(String),
     /// TODO: remove this error
     NotSupported,
+    NoBackendAvailable(Box<std::error::Error + Send>),
     RobustnessNotSupported,
     OpenGlVersionNotSupported,
     NoAvailablePixelFormat,
@@ -121,6 +148,7 @@ impl CreationError {
         match *self {
             CreationError::OsError(ref text) => &text,
             CreationError::NotSupported => "Some of the requested attributes are not supported",
+            CreationError::NoBackendAvailable(_) => "No backend is available",
             CreationError::RobustnessNotSupported => "You requested robustness, but it is \
                                                       not supported.",
             CreationError::OpenGlVersionNotSupported => "The requested OpenGL version is not \
@@ -140,6 +168,13 @@ impl std::fmt::Display for CreationError {
 impl std::error::Error for CreationError {
     fn description(&self) -> &str {
         self.to_string()
+    }
+
+    fn cause(&self) -> Option<&std::error::Error> {
+        match *self {
+            CreationError::NoBackendAvailable(ref err) => Some(&**err),
+            _ => None
+        }
     }
 }
 
@@ -465,7 +500,23 @@ impl<'a> BuilderAttribs<'a> {
 
         (new_attribs, sharing)
     }
+}
 
+/// VERY UNSTABLE! Describes how the backend should choose a pixel format.
+#[derive(Clone, Debug)]
+#[allow(missing_docs)]
+pub struct PixelFormatRequirements {
+    pub multisampling: Option<u16>,
+    pub depth_bits: Option<u8>,
+    pub stencil_bits: Option<u8>,
+    pub color_bits: Option<u8>,
+    pub alpha_bits: Option<u8>,
+    pub stereoscopy: bool,
+    pub srgb: Option<bool>,
+}
+
+impl PixelFormatRequirements {
+    #[cfg(not(target_os = "macos"))]
     fn choose_pixel_format<T, I>(&self, iter: I) -> Result<(T, PixelFormat), CreationError>
                                  where I: IntoIterator<Item=(T, PixelFormat)>, T: Clone
     {
@@ -563,6 +614,143 @@ impl<'a> BuilderAttribs<'a> {
         });
 
         formats.into_iter().next().ok_or(CreationError::NoAvailablePixelFormat)
+    }
+}
+
+impl Default for PixelFormatRequirements {
+    #[inline]
+    fn default() -> PixelFormatRequirements {
+        PixelFormatRequirements {
+            multisampling: None,
+            depth_bits: None,
+            stencil_bits: None,
+            color_bits: None,
+            alpha_bits: None,
+            stereoscopy: false,
+            srgb: None,
+        }
+    }
+}
+
+/// Attributes to use when creating a window.
+#[derive(Clone)]
+pub struct WindowAttributes {
+    /// The dimensions of the window. If this is `None`, some platform-specific dimensions will be
+    /// used.
+    ///
+    /// The default is `None`.
+    pub dimensions: Option<(u32, u32)>,
+
+    /// If `Some`, the window will be in fullscreen mode with the given monitor.
+    ///
+    /// The default is `None`.
+    pub monitor: Option<platform::MonitorId>,
+
+    /// The title of the window in the title bar.
+    ///
+    /// The default is `"glutin window"`.
+    pub title: String,
+
+    /// Whether the window should be immediately visible upon creation.
+    ///
+    /// The default is `true`.
+    pub visible: bool,
+
+    /// Whether the the window should be transparent. If this is true, writing colors
+    /// with alpha values different than `1.0` will produce a transparent window.
+    ///
+    /// The default is `false`.
+    pub transparent: bool,
+
+    /// Whether the window should have borders and bars.
+    ///
+    /// The default is `true`.
+    pub decorations: bool,
+
+    /// [iOS only] Enable multitouch, see [UIView#multipleTouchEnabled]
+    /// (https://developer.apple.com/library/ios/documentation/UIKit/Reference/UIView_Class/#//apple_ref/occ/instp/UIView/multipleTouchEnabled)
+    pub multitouch: bool,
+}
+
+impl Default for WindowAttributes {
+    #[inline]
+    fn default() -> WindowAttributes {
+        WindowAttributes {
+            dimensions: None,
+            monitor: None,
+            title: "glutin window".to_owned(),
+            visible: true,
+            transparent: false,
+            decorations: true,
+            multitouch: false,
+        }
+    }
+}
+
+/// Attributes to use when creating an OpenGL context.
+#[derive(Clone)]
+pub struct GlAttributes<S> {
+    /// An existing context to share the new the context with.
+    ///
+    /// The default is `None`.
+    pub sharing: Option<S>,
+
+    /// Version to try create. See `GlRequest` for more infos.
+    ///
+    /// The default is `Latest`.
+    pub version: GlRequest,
+
+    /// OpenGL profile to use.
+    ///
+    /// The default is `None`.
+    pub profile: Option<GlProfile>,
+
+    /// Whether to enable the `debug` flag of the context.
+    ///
+    /// Debug contexts are usually slower but give better error reporting.
+    ///
+    /// The default is `true` in debug mode and `false` in release mode.
+    pub debug: bool,
+
+    /// How the OpenGL context should detect errors.
+    ///
+    /// The default is `NotRobust` because this is what is typically expected when you create an
+    /// OpenGL context. However for safety you should consider `TryRobustLoseContextOnReset`.
+    pub robustness: Robustness,
+
+    /// Whether to use vsync. If vsync is enabled, calling `swap_buffers` will block until the
+    /// screen refreshes. This is typically used to prevent screen tearing.
+    ///
+    /// The default is `false`.
+    pub vsync: bool,
+}
+
+impl<S> GlAttributes<S> {
+    /// Turns the `sharing` parameter into another type by calling a closure.
+    #[inline]
+    pub fn map_sharing<F, T>(self, f: F) -> GlAttributes<T> where F: FnOnce(S) -> T {
+        GlAttributes {
+            sharing: self.sharing.map(f),
+            version: self.version,
+            profile: self.profile,
+            debug: self.debug,
+            robustness: self.robustness,
+            vsync: self.vsync,
+        }
+    }
+}
+
+impl<S> Default for GlAttributes<S> {
+    #[inline]
+    fn default() -> GlAttributes<S> {
+        GlAttributes {
+            sharing: None,
+            version: GlRequest::Latest,
+            profile: None,
+            debug: cfg!(debug_assertions),
+            robustness: Robustness::NotRobust,
+            vsync: false,
+        }
     }
 }
 

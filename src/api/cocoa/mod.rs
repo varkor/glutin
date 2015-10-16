@@ -6,22 +6,21 @@ use {CreationError, Event, MouseCursor, CursorState};
 use CreationError::OsError;
 use libc;
 
-use Api;
-use BuilderAttribs;
 use ContextError;
+use GlAttributes;
 use GlContext;
 use GlProfile;
 use GlRequest;
 use PixelFormat;
+use PixelFormatRequirements;
 use Robustness;
+use WindowAttributes;
 use native_monitor::NativeMonitorId;
 
 use objc::runtime::{Class, Object, Sel, BOOL, YES, NO};
 use objc::declare::ClassDecl;
 
-use cgl;
 use cgl::{CGLEnable, kCGLCECrashOnRemovedFunctions, CGLSetParameter, kCGLCPSurfaceOpacity};
-use cgl::CGLContextObj as CGL_CGLContextObj;
 
 use cocoa::base::{id, nil};
 use cocoa::foundation::{NSAutoreleasePool, NSDate, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize, 
@@ -49,7 +48,7 @@ use events::ElementState::{Pressed, Released};
 use events::MouseButton;
 use events;
 
-pub use self::monitor::{MonitorID, get_available_monitors, get_primary_monitor};
+pub use self::monitor::{MonitorId, get_available_monitors, get_primary_monitor};
 
 mod monitor;
 mod event;
@@ -186,12 +185,9 @@ pub struct Window {
     delegate: WindowDelegate,
 }
 
-#[cfg(feature = "window")]
 unsafe impl Send for Window {}
-#[cfg(feature = "window")]
 unsafe impl Sync for Window {}
 
-#[cfg(feature = "window")]
 #[derive(Clone)]
 pub struct WindowProxy;
 
@@ -265,13 +261,14 @@ impl<'a> Iterator for WaitEventsIterator<'a> {
 }
 
 impl Window {
-    #[cfg(feature = "window")]
-    pub fn new(builder: BuilderAttribs) -> Result<Window, CreationError> {
-        if builder.sharing.is_some() {
+    pub fn new(win_attribs: &WindowAttributes, pf_reqs: &PixelFormatRequirements,
+               opengl: &GlAttributes<&Window>) -> Result<Window, CreationError>
+    {
+        if opengl.sharing.is_some() {
             unimplemented!()
         }
 
-        match builder.gl_robustness {
+        match opengl.robustness {
             Robustness::RobustNoResetNotification | Robustness::RobustLoseContextOnReset => {
                 return Err(CreationError::RobustnessNotSupported);
             },
@@ -283,7 +280,7 @@ impl Window {
             None      => { return Err(OsError(format!("Couldn't create NSApplication"))); },
         };
 
-        let window = match Window::create_window(&builder)
+        let window = match Window::create_window(win_attribs)
         {
             Some(window) => window,
             None         => { return Err(OsError(format!("Couldn't create NSWindow"))); },
@@ -295,13 +292,13 @@ impl Window {
 
         // TODO: perhaps we should return error from create_context so we can
         // determine the cause of failure and possibly recover?
-        let (context, pf) = match Window::create_context(*view, &builder) {
+        let (context, pf) = match Window::create_context(*view, pf_reqs, opengl) {
             Ok((context, pf)) => (context, pf),
             Err(e) => { return Err(OsError(format!("Couldn't create OpenGL context: {}", e))); },
         };
 
         unsafe {
-            if builder.transparent {
+            if win_attribs.transparent {
                 let clear_col = {
                     let cls = Class::get("NSColor").unwrap();
 
@@ -317,7 +314,7 @@ impl Window {
             }
             
             app.activateIgnoringOtherApps_(YES);
-            if builder.visible {
+            if win_attribs.visible {
                 window.makeKeyAndOrderFront_(nil);
             } else {
                 window.makeKeyWindow();
@@ -356,9 +353,9 @@ impl Window {
         }
     }
 
-    fn create_window(builder: &BuilderAttribs) -> Option<IdRef> {
+    fn create_window(attrs: &WindowAttributes) -> Option<IdRef> {
         unsafe { 
-            let screen = match builder.monitor {
+            let screen = match attrs.monitor {
                 Some(ref monitor_id) => {
                     let native_id = match monitor_id.get_native_identifier() {
                         NativeMonitorId::Numeric(num) => num,
@@ -390,19 +387,29 @@ impl Window {
             let frame = match screen {
                 Some(screen) => NSScreen::frame(screen),
                 None => {
-                    let (width, height) = builder.dimensions.unwrap_or((800, 600));
+                    let (width, height) = attrs.dimensions.unwrap_or((800, 600));
                     NSRect::new(NSPoint::new(0., 0.), NSSize::new(width as f64, height as f64))
                 }
             };
 
-            let masks = if screen.is_some() || !builder.decorations {
-                NSBorderlessWindowMask as NSUInteger |
-                NSResizableWindowMask as NSUInteger
-            } else {
-                NSTitledWindowMask as NSUInteger |
-                NSClosableWindowMask as NSUInteger |
-                NSMiniaturizableWindowMask as NSUInteger |
-                NSResizableWindowMask as NSUInteger
+            let masks = match (attrs.decorations, attrs.transparent) {
+                (true, false) =>
+                    // Classic opaque window with titlebar
+                    NSClosableWindowMask as NSUInteger |
+                    NSMiniaturizableWindowMask as NSUInteger |
+                    NSResizableWindowMask as NSUInteger |
+                    NSTitledWindowMask as NSUInteger,
+                (false, false) =>
+                    // Opaque window without a titlebar
+                    NSClosableWindowMask as NSUInteger |
+                    NSMiniaturizableWindowMask as NSUInteger |
+                    NSResizableWindowMask as NSUInteger |
+                    NSTitledWindowMask as NSUInteger |
+                    NSFullSizeContentViewWindowMask as NSUInteger,
+                (_, true) =>
+                    // Fully transparent window.
+                    // No shadow, decorations or borders.
+                    NSBorderlessWindowMask as NSUInteger
             };
 
             let window = IdRef::new(NSWindow::alloc(nil).initWithContentRect_styleMask_backing_defer_(
@@ -412,9 +419,15 @@ impl Window {
                 NO,
             ));
             window.non_nil().map(|window| {
-                let title = IdRef::new(NSString::alloc(nil).init_str(&builder.title));
+                let title = IdRef::new(NSString::alloc(nil).init_str(&attrs.title));
                 window.setTitle_(*title);
                 window.setAcceptsMouseMovedEvents_(YES);
+
+                if !attrs.decorations {
+                    window.setTitleVisibility_(NSWindowTitleVisibility::NSWindowTitleHidden);
+                    window.setTitlebarAppearsTransparent_(YES);
+                }
+
                 if screen.is_some() {
                     window.setLevel_(NSMainMenuWindowLevel as i64 + 1);
                 }
@@ -437,8 +450,10 @@ impl Window {
         }
     }
 
-    fn create_context(view: id, builder: &BuilderAttribs) -> Result<(IdRef, PixelFormat), CreationError> {
-        let profile = match (builder.gl_version, builder.gl_version.to_gl_version(), builder.gl_profile) {
+    fn create_context(view: id, pf_reqs: &PixelFormatRequirements, opengl: &GlAttributes<&Window>)
+                      -> Result<(IdRef, PixelFormat), CreationError>
+    {
+        let profile = match (opengl.version, opengl.version.to_gl_version(), opengl.profile) {
 
             // Note: we are not using ranges because of a rust bug that should be fixed here:
             // https://github.com/rust-lang/rust/pull/27050
@@ -471,16 +486,16 @@ impl Window {
         // full color size and hope for the best. Another hiccup is that
         // `NSOpenGLPFAColorSize` also includes `NSOpenGLPFAAlphaSize`,
         // so we have to account for that as well.
-        let alpha_depth = builder.alpha_bits.unwrap_or(8);
-        let color_depth = builder.color_bits.unwrap_or(24) + alpha_depth;
+        let alpha_depth = pf_reqs.alpha_bits.unwrap_or(8);
+        let color_depth = pf_reqs.color_bits.unwrap_or(24) + alpha_depth;
 
         let mut attributes = vec![
             NSOpenGLPFADoubleBuffer as u32,
             NSOpenGLPFAClosestPolicy as u32,
             NSOpenGLPFAColorSize as u32, color_depth as u32,
             NSOpenGLPFAAlphaSize as u32, alpha_depth as u32,
-            NSOpenGLPFADepthSize as u32, builder.depth_bits.unwrap_or(24) as u32,
-            NSOpenGLPFAStencilSize as u32, builder.stencil_bits.unwrap_or(8) as u32,
+            NSOpenGLPFADepthSize as u32, pf_reqs.depth_bits.unwrap_or(24) as u32,
+            NSOpenGLPFAStencilSize as u32, pf_reqs.stencil_bits.unwrap_or(8) as u32,
             NSOpenGLPFAOpenGLProfile as u32, profile,
         ];
 
@@ -491,7 +506,7 @@ impl Window {
             attributes.push(NSOpenGLPFAColorFloat as u32);
         }
 
-        builder.multisampling.map(|samples| {
+        pf_reqs.multisampling.map(|samples| {
             attributes.push(NSOpenGLPFAMultisample as u32);
             attributes.push(NSOpenGLPFASampleBuffers as u32); attributes.push(1);
             attributes.push(NSOpenGLPFASamples as u32); attributes.push(samples as u32);
@@ -540,7 +555,7 @@ impl Window {
                     };
 
                     cxt.setView_(view);
-                    let value = if builder.vsync { 1 } else { 0 };
+                    let value = if opengl.vsync { 1 } else { 0 };
                     cxt.setValues_forParameter_(&value, NSOpenGLContextParameter::NSOpenGLCPSwapInterval);
 
                     CGLEnable(cxt.CGLContextObj(), kCGLCECrashOnRemovedFunctions);
@@ -562,10 +577,12 @@ impl Window {
         }
     }
 
+    #[inline]
     pub fn show(&self) {
         unsafe { NSWindow::makeKeyAndOrderFront_(*self.window, nil); }
     }
 
+    #[inline]
     pub fn hide(&self) {
         unsafe { NSWindow::orderOut_(*self.window, nil); }
     }
@@ -600,6 +617,7 @@ impl Window {
         }
     }
 
+    #[inline]
     pub fn get_inner_size(&self) -> Option<(u32, u32)> {
         unsafe {
             let view_frame = NSView::frame(*self.view);
@@ -607,6 +625,7 @@ impl Window {
         }
     }
 
+    #[inline]
     pub fn get_outer_size(&self) -> Option<(u32, u32)> {
         unsafe {
             let window_frame = NSWindow::frame(*self.window);
@@ -614,22 +633,26 @@ impl Window {
         }
     }
 
+    #[inline]
     pub fn set_inner_size(&self, width: u32, height: u32) {
         unsafe {
             NSWindow::setContentSize_(*self.window, NSSize::new(width as f64, height as f64));
         }
     }
 
+    #[inline]
     pub fn create_window_proxy(&self) -> WindowProxy {
         WindowProxy
     }
 
+    #[inline]
     pub fn poll_events(&self) -> PollEventsIterator {
         PollEventsIterator {
             window: self
         }
     }
 
+    #[inline]
     pub fn wait_events(&self) -> WaitEventsIterator {
         WaitEventsIterator {
             window: self
@@ -646,14 +669,17 @@ impl Window {
         return None;
     }
 
+    #[inline]
     pub fn platform_display(&self) -> *mut libc::c_void {
         unimplemented!()
     }
 
+    #[inline]
     pub fn platform_window(&self) -> *mut libc::c_void {
         unimplemented!()
     }
 
+    #[inline]
     pub fn set_window_resize_callback(&mut self, callback: Option<fn(u32, u32)>) {
         self.delegate.state.resize_handler = callback;
     }
@@ -717,24 +743,28 @@ impl Window {
         }
     }
 
+    #[inline]
     pub fn hidpi_factor(&self) -> f32 {
         unsafe {
             NSWindow::backingScaleFactor(*self.window) as f32
         }
     }
 
-    pub fn set_cursor_position(&self, x: i32, y: i32) -> Result<(), ()> {
+    #[inline]
+    pub fn set_cursor_position(&self, _x: i32, _y: i32) -> Result<(), ()> {
         unimplemented!();
     }
 }
 
 impl GlContext for Window {
+    #[inline]
     unsafe fn make_current(&self) -> Result<(), ContextError> {
         let _: () = msg_send![*self.context, update];
         self.context.makeCurrentContext();
         Ok(())
     }
 
+    #[inline]
     fn is_current(&self) -> bool {
         unsafe {
             let current = NSOpenGLContext::currentContext(nil);
@@ -759,15 +789,18 @@ impl GlContext for Window {
         symbol as *const _
     }
 
+    #[inline]
     fn swap_buffers(&self) -> Result<(), ContextError> {
         unsafe { self.context.flushBuffer(); }
         Ok(())
     }
 
+    #[inline]
     fn get_api(&self) -> ::Api {
         ::Api::OpenGl
     }
 
+    #[inline]
     fn get_pixel_format(&self) -> PixelFormat {
         self.pixel_format.clone()
     }
@@ -780,6 +813,7 @@ impl IdRef {
         IdRef(i)
     }
 
+    #[allow(dead_code)]
     fn retain(i: id) -> IdRef {
         if i != nil {
             let _: id = unsafe { msg_send![i, retain] };
@@ -816,6 +850,7 @@ impl Clone for IdRef {
     }
 }
 
+#[allow(non_snake_case)]
 unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
     if nsevent == nil { return None; }
 

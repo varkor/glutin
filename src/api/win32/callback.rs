@@ -52,7 +52,6 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
                                        wparam: winapi::WPARAM, lparam: winapi::LPARAM)
                                        -> winapi::LRESULT
 {
-    let wakeup_msg = *super::WAKEUP_MSG_ID;
     match msg {
         winapi::WM_DESTROY => {
             use events::Event::Closed;
@@ -103,6 +102,14 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             0
         },
 
+        // Prevents default windows menu hotkeys playing unwanted
+        // "ding" sounds. Alternatively could check for WM_SYSCOMMAND
+        // with wparam being SC_KEYMENU, but this may prevent some
+        // other unwanted default hotkeys as well.
+        winapi::WM_SYSCHAR => {
+            0
+        }
+
         winapi::WM_MOUSEMOVE => {
             use events::Event::MouseMoved;
 
@@ -127,15 +134,19 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             0
         },
 
-        winapi::WM_KEYDOWN => {
+        winapi::WM_KEYDOWN | winapi::WM_SYSKEYDOWN => {
             use events::Event::KeyboardInput;
             use events::ElementState::Pressed;
-            let (scancode, vkey) = event::vkeycode_to_element(wparam, lparam);
-            send_event(window, KeyboardInput(Pressed, scancode, vkey));
-            0
+            if msg == winapi::WM_SYSKEYDOWN && wparam as i32 == winapi::VK_F4 {
+                user32::DefWindowProcW(window, msg, wparam, lparam)
+            } else {
+                let (scancode, vkey) = event::vkeycode_to_element(wparam, lparam);
+                send_event(window, KeyboardInput(Pressed, scancode, vkey));
+                0
+            }
         },
 
-        winapi::WM_KEYUP => {
+        winapi::WM_KEYUP | winapi::WM_SYSKEYUP => {
             use events::Event::KeyboardInput;
             use events::ElementState::Released;
             let (scancode, vkey) = event::vkeycode_to_element(wparam, lparam);
@@ -270,7 +281,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             0
         },
 
-        x if x == wakeup_msg => {
+        x if x == *super::WAKEUP_MSG_ID => {
             use events::Event::Awakened;
             send_event(window, Awakened);
             0
