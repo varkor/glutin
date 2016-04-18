@@ -382,15 +382,6 @@ unsafe fn choose_fbconfig(glx: &ffi::glx::Glx, extensions: &str, xlib: &ffi::Xli
             out.push(ffi::glx::RGBA_BIT as c_int);
         }
 
-        if let Some(hardware_accelerated) = reqs.hardware_accelerated {
-            out.push(ffi::glx::CONFIG_CAVEAT as c_int);
-            out.push(if hardware_accelerated {
-                ffi::glx::NONE as c_int
-            } else {
-                ffi::glx::SLOW_CONFIG as c_int
-            });
-        }
-
         if let Some(color) = reqs.color_bits {
             out.push(ffi::glx::RED_SIZE as c_int);
             out.push((color / 3) as c_int);
@@ -437,6 +428,9 @@ unsafe fn choose_fbconfig(glx: &ffi::glx::Glx, extensions: &str, xlib: &ffi::Xli
             if extensions.split(' ').find(|&i| i == "GLX_ARB_framebuffer_sRGB").is_some() {
                 out.push(ffi::glx_extra::FRAMEBUFFER_SRGB_CAPABLE_ARB as c_int);
                 out.push(1);
+            } else if extensions.split(' ').find(|&i| i == "GLX_EXT_framebuffer_sRGB").is_some() {
+                out.push(ffi::glx_extra::FRAMEBUFFER_SRGB_CAPABLE_EXT as c_int);
+                out.push(1);
             } else {
                 return Err(());
             }
@@ -451,6 +445,9 @@ unsafe fn choose_fbconfig(glx: &ffi::glx::Glx, extensions: &str, xlib: &ffi::Xli
                 }
             },
         }
+
+        out.push(ffi::glx::CONFIG_CAVEAT as c_int);
+        out.push(ffi::glx::DONT_CARE as c_int);
 
         out.push(0);
         out
@@ -491,7 +488,8 @@ unsafe fn choose_fbconfig(glx: &ffi::glx::Glx, extensions: &str, xlib: &ffi::Xli
         } else {
             None
         },
-        srgb: get_attrib(ffi::glx_extra::FRAMEBUFFER_SRGB_CAPABLE_ARB as c_int) != 0,
+        srgb: get_attrib(ffi::glx_extra::FRAMEBUFFER_SRGB_CAPABLE_ARB as c_int) != 0 ||
+              get_attrib(ffi::glx_extra::FRAMEBUFFER_SRGB_CAPABLE_EXT as c_int) != 0,
     };
 
     Ok((fb_config, pf_desc))
