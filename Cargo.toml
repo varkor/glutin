@@ -1,6 +1,6 @@
 [package]
 name = "servo-glutin"
-version = "0.4.15"
+version = "0.4.16"
 authors = ["The glutin contributors, Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform OpenGL context provider."
 keywords = ["windowing", "opengl"]
@@ -46,7 +46,7 @@ objc = "0.2"
 [target.x86_64-apple-darwin.dependencies]
 objc = "0.2"
 cgl = "0.1"
-cocoa = "0.3"
+cocoa = "0.3.2"
 core-foundation = "0"
 core-graphics = ">=0.2, <0.4"
 
