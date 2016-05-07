@@ -58,6 +58,11 @@ mod event;
 mod headless;
 mod helpers;
 
+/// The height of the titlebar (draggable area for resizing) when decorations are off.
+///
+/// TODO(pcwalton): Make this a Glutin option.
+const TITLEBAR_HEIGHT: f64 = 32.0;
+
 static mut shift_pressed: bool = false;
 static mut ctrl_pressed: bool = false;
 static mut win_pressed: bool = false;
@@ -306,7 +311,9 @@ impl Window {
             Some(window) => window,
             None         => { return Err(OsError(format!("Couldn't create NSWindow"))); },
         };
-        let view = match Window::get_or_create_view(*window, win_attribs.decorations) {
+        let view = match Window::get_or_create_view(*window,
+                                                    win_attribs.decorations,
+                                                    win_attribs.transparent) {
             Some(view) => view,
             None       => { return Err(OsError(format!("Couldn't create NSView"))); },
         };
@@ -320,16 +327,9 @@ impl Window {
 
         unsafe {
             if win_attribs.transparent {
-                let clear_col = {
-                    let cls = Class::get("NSColor").unwrap();
-
-                    msg_send![cls, clearColor]
-                };
                 window.setOpaque_(NO);
-                window.setBackgroundColor_(clear_col);
 
                 let obj = context.CGLContextObj();
-
                 let mut opacity = 0;
                 CGLSetParameter(obj as *mut _, kCGLCPSurfaceOpacity, &mut opacity);
             }
@@ -422,56 +422,50 @@ impl Window {
                 }
             };
 
-            let masks = if screen.is_some() || attrs.transparent {
-                // Fullscreen or transparent window
+            let masks = if screen.is_some() || !attrs.decorations || attrs.transparent {
+                // Fullscreen, transparent, or opaque window without titlebar.
+                //
+                // Note that transparent windows never have decorations.
                 NSBorderlessWindowMask as NSUInteger |
-                NSResizableWindowMask as NSUInteger |
-                NSTitledWindowMask as NSUInteger
-            } else if attrs.decorations {
-                // Classic opaque window with titlebar
-                NSClosableWindowMask as NSUInteger |
-                NSMiniaturizableWindowMask as NSUInteger |
-                NSResizableWindowMask as NSUInteger |
-                NSTitledWindowMask as NSUInteger
+                NSResizableWindowMask as NSUInteger
             } else {
-                // Opaque window without a titlebar
+                // Classic opaque window with titlebar.
                 NSClosableWindowMask as NSUInteger |
                 NSMiniaturizableWindowMask as NSUInteger |
                 NSResizableWindowMask as NSUInteger |
                 NSTitledWindowMask as NSUInteger
             };
 
-            let window = IdRef::new(NSWindow::alloc(nil).initWithContentRect_styleMask_backing_defer_(
+            let window_class = match Class::get("GlutinWindow") {
+                Some(window_class) => window_class,
+                None => {
+                    let window_superclass = Class::get("NSWindow").unwrap();
+                    let mut decl = ClassDecl::new("GlutinWindow", window_superclass).unwrap();
+                    decl.add_method(sel!(canBecomeMainWindow),
+                                    yes as extern fn(&Object, Sel) -> BOOL);
+                    decl.add_method(sel!(canBecomeKeyWindow),
+                                    yes as extern fn(&Object, Sel) -> BOOL);
+                    decl.add_method(sel!(mouseDownCanMoveWindow),
+                                    yes as extern fn(&Object, Sel) -> BOOL);
+                    decl.add_method(sel!(isMovableByWindowBackground),
+                                    yes as extern fn(&Object, Sel) -> BOOL);
+                    decl.register();
+                    Class::get("GlutinWindow").expect("Couldn't find GlutinWindow class!")
+                }
+            };
+
+            let window: id = msg_send![window_class, alloc];
+            let window = IdRef::new(window.initWithContentRect_styleMask_backing_defer_(
                 frame,
                 masks,
                 NSBackingStoreBuffered,
                 NO,
             ));
+
             window.non_nil().map(|window| {
                 let title = IdRef::new(NSString::alloc(nil).init_str(&attrs.title));
                 window.setTitle_(*title);
                 window.setAcceptsMouseMovedEvents_(YES);
-
-                if !attrs.decorations {
-                    // Make titles invisible so that nothing is drawn.
-                    window.setTitleVisibility_(NSWindowTitleVisibility::NSWindowTitleHidden);
-                    window.setTitlebarAppearsTransparent_(YES);
-
-                    // Get rid of all the buttons so that they won't be drawn and the user can't
-                    // click them.
-                    for &button_type in &[
-                        NSWindowButton::NSWindowCloseButton,
-                        NSWindowButton::NSWindowMiniaturizeButton,
-                        NSWindowButton::NSWindowZoomButton,
-                        NSWindowButton::NSWindowToolbarButton,
-                        NSWindowButton::NSWindowFullScreenButton,
-                    ] {
-                        if let Some(button) =
-                                IdRef::new(window.standardWindowButton_(button_type)).non_nil() {
-                            button.removeFromSuperview()
-                        }
-                    }
-                }
 
                 if screen.is_some() {
                     window.setLevel_(NSMainMenuWindowLevel as i64 + 1);
@@ -484,9 +478,10 @@ impl Window {
         }
     }
 
-    fn get_or_create_view(window: id, decorations: bool) -> Option<IdRef> {
+    fn get_or_create_view(window: id, decorations: bool, transparent: bool) -> Option<IdRef> {
         unsafe {
-            if decorations {
+            // Note that transparent windows never have decorations.
+            if decorations && !transparent {
                 let view = IdRef::new(NSView::alloc(nil).init());
                 return view.non_nil().map(|view| {
                     view.setWantsBestResolutionOpenGLSurface_(YES);
@@ -495,18 +490,53 @@ impl Window {
                 })
             }
 
-            // This hack is a little evil. We get the superview of the content view, which is the
-            // `NSThemeFrame`, and install an OpenGL context into it. `NSThemeFrame` is a private
-            // class, but we only call public `NSView` APIs on it here, so this seems OK.
-            //
-            // The reason for using this hack as opposed to `NSFullSizeContentViewWindowMask` is
-            // that the latter forces the window to be Core Animation-backed, which results in us
-            // rendering to an off screen surface. Not only does this inject another compositor
-            // into the system, but it also results in us rendering to an off-screen surface,
-            // disabling the swap interval.
-            let view = window.contentView().superview();
-            view.setWantsBestResolutionOpenGLSurface_(YES);
-            Some(IdRef::new(view))
+            let content_view_class = match Class::get("GlutinContentView") {
+                Some(content_view_class) => content_view_class,
+                None => {
+                    let view_superclass = Class::get("NSView").unwrap();
+                    let mut decl = ClassDecl::new("GlutinContentView", view_superclass).unwrap();
+                    decl.add_ivar::<bool>("drawnOnce");
+                    decl.add_method(sel!(mouseDownCanMoveWindow),
+                                    yes as extern fn(&Object, Sel) -> BOOL);
+                    decl.add_method(sel!(drawRect:),
+                                    draw_rect_in_glutin_content_view as extern fn(&Object,
+                                                                                  Sel,
+                                                                                  NSRect));
+
+                    // Perhaps surprisingly, we make `isOpaque` return true even if the client code
+                    // requested a transparent window. That's because, in Cocoa, "opaque" actually
+                    // means "occludes window content behind this view". Since the OpenGL context
+                    // covers the entire content area of the window, this is always the case.
+                    decl.add_method(sel!(isOpaque), yes as extern fn(&Object, Sel) -> BOOL);
+
+                    decl.register();
+                    Class::get("GlutinContentView").expect("Couldn't find GlutinContentView \
+                                                            class?!")
+                }
+            };
+
+            let mut content_view: id = msg_send![content_view_class, alloc];
+            let window_bounds: NSRect = NSWindow::frame(window);
+            let content_view_bounds = NSRect::new(NSPoint::new(0., 0.),
+                                                  NSSize::new(window_bounds.size.width,
+                                                              window_bounds.size.height));
+            content_view = content_view.initWithFrame_(content_view_bounds);
+            content_view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
+            content_view.setWantsBestResolutionOpenGLSurface_(YES);
+
+            let nondraggable_region_bounds =
+                NSRect::new(NSPoint::new(0., 0.),
+                            NSSize::new(window_bounds.size.width,
+                                        window_bounds.size.height - TITLEBAR_HEIGHT));
+            let nondraggable_region_view: id =
+                NSView::alloc(nil).initWithFrame_(nondraggable_region_bounds);
+            nondraggable_region_view.setOpaque_(YES);
+            nondraggable_region_view.setAutoresizingMask_(NSViewWidthSizable |
+                                                          NSViewHeightSizable);
+            content_view.addSubview_(nondraggable_region_view);
+
+            window.setContentView_(content_view);
+            Some(IdRef::new(content_view))
         }
     }
 
@@ -961,6 +991,29 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
             Some(TouchpadPressure(nsevent.pressure(), nsevent.stage()))
         },
         _  => { None },
+    }
+}
+
+extern fn yes(_: &Object, _: Sel) -> BOOL {
+    YES
+}
+
+extern fn draw_rect_in_glutin_content_view(this: &Object, _: Sel, _: NSRect) {
+    unsafe {
+        let this: *mut Object = this as *const Object as *mut Object;
+        if *(*this).get_ivar("drawnOnce") {
+            // Draw this only once. This is expensive since it paints on CPU, and it seems only
+            // necessary to do once in order to turn the background transparent.
+            return
+        }
+
+        let color_class = Class::get("NSColor").unwrap();
+        let clear: id = msg_send![color_class, clearColor];
+        msg_send![clear, set];
+        let bounds: NSRect = msg_send![this, frame];
+        NSRectFill(bounds);
+
+        (*this).set_ivar("drawnOnce", true);
     }
 }
 
