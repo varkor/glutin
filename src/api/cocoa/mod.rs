@@ -42,6 +42,7 @@ use std::str::from_utf8;
 use std::sync::Mutex;
 use std::ascii::AsciiExt;
 use std::ops::Deref;
+use std::path::PathBuf;
 
 use events::ElementState::{Pressed, Released};
 use events::Event::{Awakened, MouseInput, MouseMoved, ReceivedCharacter, KeyboardInput};
@@ -298,7 +299,8 @@ impl Window {
             _ => ()
         }
 
-        let app = match Window::create_app(pl_attribs.activation_policy) {
+        let app = match Window::create_app(pl_attribs.activation_policy,
+                                           win_attribs.icon.clone()) {
             Some(app) => app,
             None      => { return Err(OsError(format!("Couldn't create NSApplication"))); },
         };
@@ -363,13 +365,22 @@ impl Window {
         Ok(window)
     }
 
-    fn create_app(activation_policy: ActivationPolicy) -> Option<id> {
+    fn create_app(activation_policy: ActivationPolicy, icon_path: Option<PathBuf>) -> Option<id> {
         unsafe {
             let app = NSApp();
             if app == nil {
                 None
             } else {
                 app.setActivationPolicy_(activation_policy.into());
+                if let Some(icon_path) = icon_path {
+                    if let Some(icon_path) = icon_path.to_str() {
+                        let icon_path = NSString::alloc(nil).init_str(icon_path);
+                        let icon = NSImage::alloc(nil).initByReferencingFile_(icon_path);
+                        if icon.isValid() != NO {
+                            app.setApplicationIconImage_(icon)
+                        }
+                    }
+                }
                 app.finishLaunching();
                 Some(app)
             }

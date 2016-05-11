@@ -1,5 +1,6 @@
 use std::collections::vec_deque::IntoIter as VecDequeIter;
 use std::default::Default;
+use std::path::PathBuf;
 
 use Api;
 use ContextError;
@@ -199,6 +200,13 @@ impl<'a> WindowBuilder<'a> {
     #[inline]
     pub fn with_multitouch(mut self) -> WindowBuilder<'a> {
         self.window.multitouch = true;
+        self
+    }
+
+    /// Sets the icon for the window. The supplied path must reference a PNG file.
+    #[inline]
+    pub fn with_icon(mut self, icon_path: PathBuf) -> WindowBuilder<'a> {
+        self.window.icon = Some(icon_path);
         self
     }
 
