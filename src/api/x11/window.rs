@@ -7,10 +7,12 @@ use std::{mem, ptr, cmp};
 use std::cell::Cell;
 use std::sync::atomic::AtomicBool;
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::os::raw::c_long;
 use std::thread;
 use std::time::Duration;
+use image;
 
 use Api;
 use ContextError;
@@ -706,8 +708,57 @@ impl Window {
             }
         }
 
+        if let Some(ref icon_path) = window_attrs.icon {
+            window.set_icon(icon_path);
+        }
+
         // returning
         Ok(window)
+    }
+
+    pub fn set_icon(&self, icon: &PathBuf) {
+        use image::GenericImage;
+
+        let img = match image::open(icon) {
+            Ok(img) => img,
+            Err(_) => return,
+        };
+
+        let (width, height) = img.dimensions();
+
+        // This is an array of 32bit packed CARDINAL ARGB with high byte being
+        // A, low byte being B. The first two cardinals are width, height. Data
+        // is in rows, left to right and top to bottom.
+        let mut buff = Vec::<libc::c_ulong>::with_capacity((width * height + 2) as usize);
+
+        buff.push(width as libc::c_ulong);
+        buff.push(height as libc::c_ulong);
+
+        for (_x, _y, rgba) in img.pixels() {
+            let mut value: u32 = (rgba[3] as u32) << 24 |
+                                 (rgba[0] as u32) << 16 |
+                                 (rgba[1] as u32) << 8  |
+                                 (rgba[2] as u32);
+            buff.push(value as libc::c_ulong);
+        }
+
+        assert!(buff.len() == (width * height + 2) as usize);
+
+        unsafe {
+            let net_wm_icon = (self.x.display.xlib.XInternAtom)(self.x.display.display,
+                                                                b"_NET_WM_ICON\0".as_ptr() as *const _, 0);
+
+            let cardinal = (self.x.display.xlib.XInternAtom)(self.x.display.display,
+                                                             b"CARDINAL\0".as_ptr() as *const _, 0);
+
+            (self.x.display.xlib.XChangeProperty)(self.x.display.display,
+                                                  self.x.window,
+                                                  net_wm_icon,
+                                                  cardinal, 32, ffi::PropModeReplace,
+                                                  buff.as_ptr() as *const _,
+                                                  buff.len() as libc::c_int);
+            self.x.display.check_errors().expect("Failed to set the icon");
+        }
     }
 
     pub fn set_title(&self, title: &str) {
