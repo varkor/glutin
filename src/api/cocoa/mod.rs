@@ -204,11 +204,7 @@ impl WindowProxy {
     pub fn wakeup_event_loop(&self) {
         unsafe {
             let pool = NSAutoreleasePool::new(nil);
-            let event =
-                NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_(
-                    nil, NSApplicationDefined, NSPoint::new(0.0, 0.0), NSEventModifierFlags::empty(),
-                    0.0, 0, nil, NSApplicationActivatedEventType, 0, 0);
-            NSApp().postEvent_atStart_(event, NO);
+            WAKEUP_EVENT.with(|wakeup_event| NSApp().postEvent_atStart_(*wakeup_event, NO));
             pool.drain();
         }
     }
@@ -860,7 +856,10 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
     if nsevent == nil { return None; }
 
     let event_type = nsevent.eventType();
-    NSApp().sendEvent_(if let NSKeyDown = event_type { nil } else { nsevent });
+    match event_type {
+        NSKeyDown | NSApplicationDefined => {}
+        _ => NSApp().sendEvent_(nsevent),
+    }
 
     match event_type {
         NSLeftMouseDown         => { Some(MouseInput(Pressed, MouseButton::Left)) },
@@ -953,3 +952,25 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
         _  => { None },
     }
 }
+
+thread_local! {
+    static WAKEUP_EVENT: id = {
+        unsafe {
+            let event =
+                NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2_(
+                    nil,
+                    NSApplicationDefined,
+                    NSPoint::new(0.0, 0.0),
+                    NSEventModifierFlags::empty(),
+                    0.0,
+                    0,
+                    nil,
+                    NSApplicationActivatedEventType,
+                    0,
+                    0);
+            msg_send![event, retain];
+            event
+        }
+    }
+}
+
