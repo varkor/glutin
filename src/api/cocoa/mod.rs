@@ -44,6 +44,7 @@ use std::sync::Mutex;
 use std::ascii::AsciiExt;
 use std::ops::Deref;
 use std::path::PathBuf;
+use std::env;
 
 use events::ElementState::{Pressed, Released};
 use events::Event::{Awakened, MouseInput, MouseMoved, ReceivedCharacter, KeyboardInput};
@@ -393,6 +394,9 @@ impl Window {
                     }
                 }
                 app.finishLaunching();
+
+                Window::create_menus(app_name);
+
                 Some(app)
             }
         }
@@ -611,6 +615,97 @@ impl Window {
             } else {
                 Err(CreationError::NoAvailablePixelFormat)
             }
+        }
+    }
+
+    fn create_menus(app_name: Option<&str>) {
+        unsafe {
+            let main_menu = NSMenu::alloc(nil).init();
+
+            let app_name = match app_name {
+                None => {
+                    match env::current_exe().ok().and_then(|path| {
+                        path.file_name().and_then(|name| name.to_str()
+                                                             .map(|name| name.to_owned()))
+                    }) {
+                        None => "Glutin".to_owned(),
+                        Some(name) => name,
+                    }
+                }
+                Some(name) => name.to_owned(),
+            };
+            let application_menu_name = NSString::alloc(nil).init_str(&app_name);
+
+            let application_menu = NSMenu::alloc(nil).initWithTitle_(application_menu_name);
+            let empty_string = NSString::alloc(nil).init_str("");
+            application_menu.addItemWithTitle_action_keyEquivalent(
+                NSString::alloc(nil).init_str("About ")
+                                    .stringByAppendingString_(application_menu_name),
+                sel!(orderFrontStandardAboutPanel:),
+                empty_string);
+            application_menu.addItem_(NSMenuItem::separatorItem(nil));
+            let services_string = NSString::alloc(nil).init_str("Services");
+            let menu = NSMenu::alloc(nil).initWithTitle_(services_string);
+            let item = NSMenuItem::alloc(nil).init();
+            item.setTitle_(services_string);
+            item.setSubmenu_(menu);
+            application_menu.addItem_(item);
+            NSApp().setServicesMenu_(menu);
+            application_menu.addItem_(NSMenuItem::separatorItem(nil));
+            application_menu.addItemWithTitle_action_keyEquivalent(
+                NSString::alloc(nil).init_str("Hide ")
+                                    .stringByAppendingString_(application_menu_name),
+                sel!(hide:),
+                NSString::alloc(nil).init_str("h"));
+            let item = application_menu.addItemWithTitle_action_keyEquivalent(
+                NSString::alloc(nil).init_str("Hide Others"),
+                sel!(hideOtherApplications:),
+                NSString::alloc(nil).init_str("h"));
+            item.setKeyEquivalentModifierMask_(NSCommandKeyMask | NSAlternateKeyMask);
+            application_menu.addItemWithTitle_action_keyEquivalent(
+                NSString::alloc(nil).init_str("Show All"),
+                sel!(unhideAllApplications:),
+                empty_string);
+            application_menu.addItem_(NSMenuItem::separatorItem(nil));
+            application_menu.addItemWithTitle_action_keyEquivalent(
+                NSString::alloc(nil).init_str("Quit ")
+                            .stringByAppendingString_(application_menu_name),
+                sel!(terminate:),
+                NSString::alloc(nil).init_str("q"));
+            let item = NSMenuItem::alloc(nil).init();
+            item.setTitle_(application_menu_name);
+            item.setSubmenu_(application_menu);
+            main_menu.addItem_(item);
+
+            let view_string = NSString::alloc(nil).init_str("View");
+            let menu = NSMenu::alloc(nil).initWithTitle_(view_string);
+            let item = menu.addItemWithTitle_action_keyEquivalent(
+                NSString::alloc(nil).init_str("Enter Full Screen"),
+                sel!(toggleFullScreen:),
+                NSString::alloc(nil).init_str("f"));
+            item.setKeyEquivalentModifierMask_(NSCommandKeyMask | NSControlKeyMask);
+            let item = NSMenuItem::alloc(nil).init();
+            item.setTitle_(view_string);
+            item.setSubmenu_(menu);
+            main_menu.addItem_(item);
+
+            let window_string = NSString::alloc(nil).init_str("Window");
+            let menu = NSMenu::alloc(nil).initWithTitle_(window_string);
+            menu.addItemWithTitle_action_keyEquivalent(
+                NSString::alloc(nil).init_str("Minimize"),
+                sel!(performMiniaturize:),
+                NSString::alloc(nil).init_str("m"));
+            menu.addItemWithTitle_action_keyEquivalent(
+                NSString::alloc(nil).init_str("Zoom"),
+                sel!(performZoom:),
+                empty_string);
+            let item = NSMenuItem::alloc(nil).init();
+            item.setTitle_(window_string);
+            item.setSubmenu_(menu);
+            main_menu.addItem_(item);
+
+            NSApp().setMainMenu_(main_menu);
+            NSApp().setWindowsMenu_(menu);
         }
     }
 
