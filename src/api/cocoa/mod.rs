@@ -31,7 +31,8 @@ use cocoa::appkit::NSEventSubtype::*;
 
 use core_foundation::base::TCFType;
 use core_foundation::string::CFString;
-use core_foundation::bundle::{CFBundleGetBundleWithIdentifier, CFBundleGetFunctionPointerForName};
+use core_foundation::bundle::{CFBundle, CFBundleGetBundleWithIdentifier};
+use core_foundation::bundle::{CFBundleGetFunctionPointerForName};
 
 use core_graphics::display::{CGAssociateMouseAndMouseCursorPosition, CGMainDisplayID, CGDisplayPixelsHigh, CGWarpMouseCursorPosition};
 
@@ -190,6 +191,7 @@ impl Drop for WindowDelegate {
 #[derive(Default)]
 pub struct PlatformSpecificWindowBuilderAttributes {
     pub activation_policy: ActivationPolicy,
+    pub app_name: Option<String>,
 }
 
 pub struct Window {
@@ -301,6 +303,7 @@ impl Window {
         }
 
         let app = match Window::create_app(pl_attribs.activation_policy,
+                                           pl_attribs.app_name.as_ref().map(|name| &**name),
                                            win_attribs.icon.clone()) {
             Some(app) => app,
             None      => { return Err(OsError(format!("Couldn't create NSApplication"))); },
@@ -361,13 +364,25 @@ impl Window {
         Ok(window)
     }
 
-    fn create_app(activation_policy: ActivationPolicy, icon_path: Option<PathBuf>) -> Option<id> {
+    fn create_app(activation_policy: ActivationPolicy,
+                  app_name: Option<&str>,
+                  icon_path: Option<PathBuf>)
+                  -> Option<id> {
         unsafe {
             let app = NSApp();
             if app == nil {
                 None
             } else {
                 app.setActivationPolicy_(activation_policy.into());
+
+                // Set `CFBundleName` appropriately.
+                if let Some(app_name) = app_name {
+                    let info_dictionary = CFBundle::main_bundle().info_dictionary();
+                    info_dictionary.set_value(
+                        NSString::alloc(nil).init_str("CFBundleName") as *const _,
+                        NSString::alloc(nil).init_str(app_name) as *const _);
+                }
+
                 if let Some(icon_path) = icon_path {
                     if let Some(icon_path) = icon_path.to_str() {
                         let icon_path = NSString::alloc(nil).init_str(icon_path);
