@@ -69,6 +69,7 @@ pub use native_monitor::NativeMonitorId;
 use std::io;
 #[cfg(not(target_os = "macos"))]
 use std::cmp::Ordering;
+use std::path::PathBuf;
 
 mod api;
 mod platform;
@@ -551,6 +552,12 @@ pub struct WindowAttributes {
     /// (https://developer.apple.com/library/ios/documentation/UIKit/Reference/UIView_Class/#//apple_ref/occ/instp/UIView/multipleTouchEnabled)
     pub multitouch: bool,
 
+    /// A path to an icon for the window. This may not be supported on every windowing system.
+    /// If present, this path must reference a PNG file.
+    ///
+    /// The default is `None`.
+    pub icon: Option<PathBuf>,
+
     /// Parent Window.
     ///
     /// The default is `None`.
@@ -570,6 +577,7 @@ impl Default for WindowAttributes {
             transparent: false,
             decorations: true,
             multitouch: false,
+            icon: None,
             parent: None,
         }
     }
