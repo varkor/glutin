@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex};
 use std::os::raw::c_long;
 use std::thread;
 use std::time::Duration;
-use image;
 
 use Api;
 use ContextError;
@@ -716,7 +715,14 @@ impl Window {
         Ok(window)
     }
 
+    #[cfg(not(feature = "image"))]
+    pub fn set_icon(&self, _icon: &PathBuf) {
+        println!("[glutin] set_icon requires the `image` feature");
+    }
+
+    #[cfg(feature = "image")]
     pub fn set_icon(&self, icon: &PathBuf) {
+        use image;
         use image::GenericImage;
 
         let img = match image::open(icon) {
@@ -735,10 +741,10 @@ impl Window {
         buff.push(height as libc::c_ulong);
 
         for (_x, _y, rgba) in img.pixels() {
-            let mut value: u32 = (rgba[3] as u32) << 24 |
-                                 (rgba[0] as u32) << 16 |
-                                 (rgba[1] as u32) << 8  |
-                                 (rgba[2] as u32);
+            let value: u32 = (rgba[3] as u32) << 24 |
+                             (rgba[0] as u32) << 16 |
+                             (rgba[1] as u32) << 8  |
+                             (rgba[2] as u32);
             buff.push(value as libc::c_ulong);
         }
 
