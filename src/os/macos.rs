@@ -53,6 +53,7 @@ impl From<ActivationPolicy> for NSApplicationActivationPolicy {
 /// Additional methods on `WindowBuilder` that are specific to MacOS.
 pub trait WindowBuilderExt<'a> {
     fn with_activation_policy(mut self, activation_policy: ActivationPolicy) -> WindowBuilder<'a>;
+    fn with_app_name(mut self, app_name: String) -> WindowBuilder<'a>;
 }
 
 impl<'a> WindowBuilderExt<'a> for WindowBuilder<'a> {
@@ -60,6 +61,13 @@ impl<'a> WindowBuilderExt<'a> for WindowBuilder<'a> {
     #[inline]
     fn with_activation_policy(mut self, activation_policy: ActivationPolicy) -> WindowBuilder<'a> {
         self.platform_specific.activation_policy = activation_policy;
+        self
+    }
+
+    /// Sets the name of the application in the menu bar and Dock
+    #[inline]
+    fn with_app_name(mut self, app_name: String) -> WindowBuilder<'a> {
+        self.platform_specific.app_name = Some(app_name);
         self
     }
 }
