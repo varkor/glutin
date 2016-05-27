@@ -35,6 +35,7 @@ use core_foundation::bundle::{CFBundle, CFBundleGetBundleWithIdentifier};
 use core_foundation::bundle::{CFBundleGetFunctionPointerForName};
 
 use core_graphics::display::{CGAssociateMouseAndMouseCursorPosition, CGMainDisplayID, CGDisplayPixelsHigh, CGWarpMouseCursorPosition};
+use core_graphics::private::CGSRegion;
 
 use std::ffi::CStr;
 use std::collections::VecDeque;
@@ -78,6 +79,9 @@ struct DelegateState {
 
     /// Events that have been retreived with XLib but not dispatched with iterators yet
     pending_events: Mutex<VecDeque<Event>>,
+
+    /// The transparent corner radius of the window, if there is one.
+    transparent_corner_radius: Option<u32>,
 }
 
 struct WindowDelegate {
@@ -113,6 +117,9 @@ impl WindowDelegate {
                     (handler)((scale_factor * rect.size.width as f32) as u32,
                               (scale_factor * rect.size.height as f32) as u32);
                 }
+
+                update_opaque_region_of_window_if_necessary(*state.window,
+                                                            state.transparent_corner_radius);
             }
         }
 
@@ -193,6 +200,7 @@ impl Drop for WindowDelegate {
 pub struct PlatformSpecificWindowBuilderAttributes {
     pub activation_policy: ActivationPolicy,
     pub app_name: Option<String>,
+    pub transparent_corner_radius: Option<u32>,
 }
 
 pub struct Window {
@@ -310,7 +318,7 @@ impl Window {
             None      => { return Err(OsError(format!("Couldn't create NSApplication"))); },
         };
 
-        let window = match Window::create_window(win_attribs)
+        let window = match Window::create_window(win_attribs, pl_attribs.transparent_corner_radius)
         {
             Some(window) => window,
             None         => { return Err(OsError(format!("Couldn't create NSWindow"))); },
@@ -344,6 +352,9 @@ impl Window {
             } else {
                 window.makeKeyWindow();
             }
+
+            update_opaque_region_of_window_if_necessary(*window,
+                                                        pl_attribs.transparent_corner_radius);
         }
 
         let ds = DelegateState {
@@ -352,6 +363,7 @@ impl Window {
             window: window.clone(),
             resize_handler: None,
             pending_events: Mutex::new(VecDeque::new()),
+            transparent_corner_radius: pl_attribs.transparent_corner_radius,
         };
 
         let window = Window {
@@ -402,7 +414,8 @@ impl Window {
         }
     }
 
-    fn create_window(attrs: &WindowAttributes) -> Option<IdRef> {
+    fn create_window(attrs: &WindowAttributes, transparent_corner_radius: Option<u32>)
+                     -> Option<IdRef> {
         unsafe {
             let screen = match attrs.monitor {
                 Some(ref monitor_id) => {
@@ -1124,6 +1137,43 @@ extern fn draw_rect_in_glutin_content_view(this: &Object, _: Sel, _: NSRect) {
         NSRectFill(bounds);
 
         (*this).set_ivar("drawnOnce", true);
+    }
+}
+
+/// Determines what part of the window is guaranteed to be opaque (via `transparent_corner_radius`)
+/// and supplies the Mac OS X window server with that information.
+///
+/// This allows the window server to perform occlusion culling. Normal (non-borderless) Cocoa
+/// windows use this API internally.
+///
+/// NB: This uses two private Cocoa APIs: `-[NSCGSWindow windowWithWindowID]` and
+/// `[_NSCGSWindow setOpaqueShape]`. It also uses the private `CGSRegion` API. This code attempts
+/// to be defensive, but if Apple changes these APIs in future versions of Mac OS X, this function
+/// may need to be updated.
+fn update_opaque_region_of_window_if_necessary(window: id, transparent_corner_radius: Option<u32>) {
+    let transparent_corner_radius = match transparent_corner_radius {
+        Some(transparent_corner_radius) => transparent_corner_radius,
+        None => return,
+    };
+
+    unsafe {
+        let window_frame = NSRect {
+            origin: NSPoint {
+                x: 0.0,
+                y: 0.0,
+            },
+            size: NSWindow::frame(window).size,
+        };
+        let inset_window_frame = window_frame.inset(0.0, transparent_corner_radius as CGFloat);
+        let region = CGSRegion::from_rect(inset_window_frame.as_CGRect());
+
+        let ns_cgs_window = match Class::get("NSCGSWindow") {
+            Some(window) => window,
+            None => return,
+        };
+        let window_number = window.windowNumber();
+        let cgs_window: id = msg_send![ns_cgs_window, windowWithWindowID:window_number];
+        msg_send![cgs_window, setOpaqueShape:region];
     }
 }
 
