@@ -54,6 +54,8 @@ impl From<ActivationPolicy> for NSApplicationActivationPolicy {
 pub trait WindowBuilderExt<'a> {
     fn with_activation_policy(mut self, activation_policy: ActivationPolicy) -> WindowBuilder<'a>;
     fn with_app_name(mut self, app_name: String) -> WindowBuilder<'a>;
+    fn with_transparent_corner_radius(mut self, transparent_corner_radius: u32)
+                                      -> WindowBuilder<'a>;
 }
 
 impl<'a> WindowBuilderExt<'a> for WindowBuilder<'a> {
@@ -68,6 +70,17 @@ impl<'a> WindowBuilderExt<'a> for WindowBuilder<'a> {
     #[inline]
     fn with_app_name(mut self, app_name: String) -> WindowBuilder<'a> {
         self.platform_specific.app_name = Some(app_name);
+        self
+    }
+
+    /// Sets the maximum number of pixels from the corners that transparent content will be drawn
+    ///
+    /// This is used as an optimization so that Cocoa won't have to paint what's behind most of the
+    /// window. It improves performance dramatically when in use when videos, transparent Terminal
+    /// windows, etc. are behind the window.
+    fn with_transparent_corner_radius(mut self, transparent_corner_radius: u32)
+                                      -> WindowBuilder<'a> {
+        self.platform_specific.transparent_corner_radius = Some(transparent_corner_radius);
         self
     }
 }
