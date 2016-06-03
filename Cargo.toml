@@ -48,7 +48,7 @@ objc = "0.2"
 cgl = "0.1"
 cocoa = "0.4.2"
 core-foundation = "0.2.2"
-core-graphics = "0.3.1"
+core-graphics = "0.3.2"
 
 [target.i686-pc-windows-gnu.dependencies]
 winapi = "0.2"
