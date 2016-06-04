@@ -34,8 +34,9 @@ use core_foundation::string::CFString;
 use core_foundation::bundle::{CFBundle, CFBundleGetBundleWithIdentifier};
 use core_foundation::bundle::{CFBundleGetFunctionPointerForName};
 
+use core_graphics::geometry::{CG_ZERO_POINT, CGRect, CGSize};
 use core_graphics::display::{CGAssociateMouseAndMouseCursorPosition, CGMainDisplayID, CGDisplayPixelsHigh, CGWarpMouseCursorPosition};
-use core_graphics::private::CGSRegion;
+use core_graphics::private::{CGSRegion, CGSSurface};
 
 use std::ffi::CStr;
 use std::collections::VecDeque;
@@ -66,6 +67,9 @@ mod helpers;
 /// TODO(pcwalton): Make this a Glutin option.
 const TITLEBAR_HEIGHT: f64 = 32.0;
 
+/// The corner radius for the window.
+const CORNER_RADIUS: CGFloat = 6.0;
+
 static mut shift_pressed: bool = false;
 static mut ctrl_pressed: bool = false;
 static mut win_pressed: bool = false;
@@ -79,9 +83,6 @@ struct DelegateState {
 
     /// Events that have been retreived with XLib but not dispatched with iterators yet
     pending_events: Mutex<VecDeque<Event>>,
-
-    /// The transparent corner radius of the window, if there is one.
-    transparent_corner_radius: Option<u32>,
 }
 
 struct WindowDelegate {
@@ -117,9 +118,6 @@ impl WindowDelegate {
                     (handler)((scale_factor * rect.size.width as f32) as u32,
                               (scale_factor * rect.size.height as f32) as u32);
                 }
-
-                update_opaque_region_of_window_if_necessary(*state.window,
-                                                            state.transparent_corner_radius);
             }
         }
 
@@ -200,7 +198,6 @@ impl Drop for WindowDelegate {
 pub struct PlatformSpecificWindowBuilderAttributes {
     pub activation_policy: ActivationPolicy,
     pub app_name: Option<String>,
-    pub transparent_corner_radius: Option<u32>,
 }
 
 pub struct Window {
@@ -318,7 +315,7 @@ impl Window {
             None      => { return Err(OsError(format!("Couldn't create NSApplication"))); },
         };
 
-        let window = match Window::create_window(win_attribs, pl_attribs.transparent_corner_radius)
+        let window = match Window::create_window(win_attribs)
         {
             Some(window) => window,
             None         => { return Err(OsError(format!("Couldn't create NSWindow"))); },
@@ -338,14 +335,6 @@ impl Window {
         };
 
         unsafe {
-            if win_attribs.transparent {
-                window.setOpaque_(NO);
-
-                let obj = context.CGLContextObj();
-                let mut opacity = 0;
-                CGLSetParameter(obj as *mut _, kCGLCPSurfaceOpacity, &mut opacity);
-            }
-
             app.activateIgnoringOtherApps_(YES);
             if win_attribs.visible {
                 window.makeKeyAndOrderFront_(nil);
@@ -353,8 +342,9 @@ impl Window {
                 window.makeKeyWindow();
             }
 
-            update_opaque_region_of_window_if_necessary(*window,
-                                                        pl_attribs.transparent_corner_radius);
+            if !win_attribs.decorations {
+                update_surface_and_window_shape(*view)
+            }
         }
 
         let ds = DelegateState {
@@ -363,7 +353,6 @@ impl Window {
             window: window.clone(),
             resize_handler: None,
             pending_events: Mutex::new(VecDeque::new()),
-            transparent_corner_radius: pl_attribs.transparent_corner_radius,
         };
 
         let window = Window {
@@ -414,8 +403,7 @@ impl Window {
         }
     }
 
-    fn create_window(attrs: &WindowAttributes, transparent_corner_radius: Option<u32>)
-                     -> Option<IdRef> {
+    fn create_window(attrs: &WindowAttributes) -> Option<IdRef> {
         unsafe {
             let screen = match attrs.monitor {
                 Some(ref monitor_id) => {
@@ -530,6 +518,8 @@ impl Window {
                     decl.add_ivar::<bool>("drawnOnce");
                     decl.add_method(sel!(mouseDownCanMoveWindow),
                                     yes as extern fn(&Object, Sel) -> BOOL);
+                    decl.add_method(sel!(_surfaceResized:),
+                                    surface_geometry_changed as extern fn(&Object, Sel, id));
                     decl.add_method(sel!(drawRect:),
                                     draw_rect_in_glutin_content_view as extern fn(&Object,
                                                                                   Sel,
@@ -1121,6 +1111,63 @@ extern fn yes(_: &Object, _: Sel) -> BOOL {
     YES
 }
 
+/// Informs the window server of the updated shapes of the OpenGL surface and view. This allows us
+/// to correctly and efficiently draw rounded corners and window shadows.
+///
+/// This mirrors the way that Cocoa internally interacts with the window server. We can't use Cocoa
+/// itself to keep window shapes up to date because all officially-supported methods to generate
+/// windows with rounded corners either use Core Animation, draw stock title bars and backgrounds,
+/// or cause the window server to perform slow alpha compositing.
+///
+/// We try to keep private API usage to a minimum here, but some of it is unavoidable for the above
+/// reasons.
+fn update_surface_and_window_shape(view: id) {
+    unsafe {
+        // Fetch the window number for use with the private low-level window server APIs we're
+        // about to call.
+        let window: id = msg_send![view, window];
+        let window_number = window.windowNumber();
+
+        // Get the context ID that identifies the window server connection and the ID of the OpenGL
+        // surface.
+        let cgs_context_id: libc::c_uint = msg_send![NSApp(), contextID];
+        let surface: id = msg_send![view, _surface];
+        let surface_id: libc::c_uint = msg_send![surface, surfaceID];
+
+        // Create a rounded rect region representing the opaque area of the view.
+        //
+        // Note that view region is not precise on Retina displays, unfortunately. I don't know of
+        // a way to make the window server take subpixel regions. `NSSurface` has the same issue.
+        let view_rect = CGRect::new(&CG_ZERO_POINT, &NSView::frame(view).as_CGRect().size);
+        let region = create_region_with_rounded_rect(&view_rect, CORNER_RADIUS);
+
+        // Set the shape of the OpenGL surface to that rounded rectangle. This mirrors what
+        // `NSSurface` does internally.
+        CGSSurface::from_ids(cgs_context_id,
+                             window_number as libc::c_int,
+                             surface_id).set_shape(&region);
+
+        // Set the opaque region of the window to that rounded rect so that the window server can
+        // perform occlusion culling.
+        let ns_cgs_window = match Class::get("NSCGSWindow") {
+            Some(window) => window,
+            None => return,
+        };
+        let cgs_window: id = msg_send![ns_cgs_window, windowWithWindowID:window_number];
+        msg_send![cgs_window, setOpaqueShape:region];
+
+        // Force an update of the shadow. (This is the Apple-recommended way to do view; see the
+        // official `RoundTransparentWindow` example app.)
+        window.setHasShadow_(NO);
+        window.setHasShadow_(YES);
+    }
+}
+
+// Called whenever
+extern fn surface_geometry_changed(this: &Object, _: Sel, _: id) {
+    update_surface_and_window_shape(this as *const Object as *mut Object)
+}
+
 extern fn draw_rect_in_glutin_content_view(this: &Object, _: Sel, _: NSRect) {
     unsafe {
         let this: *mut Object = this as *const Object as *mut Object;
@@ -1140,41 +1187,26 @@ extern fn draw_rect_in_glutin_content_view(this: &Object, _: Sel, _: NSRect) {
     }
 }
 
-/// Determines what part of the window is guaranteed to be opaque (via `transparent_corner_radius`)
-/// and supplies the Mac OS X window server with that information.
-///
-/// This allows the window server to perform occlusion culling. Normal (non-borderless) Cocoa
-/// windows use this API internally.
-///
-/// NB: This uses two private Cocoa APIs: `-[NSCGSWindow windowWithWindowID]` and
-/// `[_NSCGSWindow setOpaqueShape]`. It also uses the private `CGSRegion` API. This code attempts
-/// to be defensive, but if Apple changes these APIs in future versions of Mac OS X, this function
-/// may need to be updated.
-fn update_opaque_region_of_window_if_necessary(window: id, transparent_corner_radius: Option<u32>) {
-    let transparent_corner_radius = match transparent_corner_radius {
-        Some(transparent_corner_radius) => transparent_corner_radius,
-        None => return,
-    };
-
-    unsafe {
-        let window_frame = NSRect {
-            origin: NSPoint {
-                x: 0.0,
-                y: 0.0,
-            },
-            size: NSWindow::frame(window).size,
-        };
-        let inset_window_frame = window_frame.inset(0.0, transparent_corner_radius as CGFloat);
-        let region = CGSRegion::from_rect(inset_window_frame.as_CGRect());
-
-        let ns_cgs_window = match Class::get("NSCGSWindow") {
-            Some(window) => window,
-            None => return,
-        };
-        let window_number = window.windowNumber();
-        let cgs_window: id = msg_send![ns_cgs_window, windowWithWindowID:window_number];
-        msg_send![cgs_window, setOpaqueShape:region];
+/// Creates a `CGSRegion` describing a rounded rect with the given dimensions and radius.
+fn create_region_with_rounded_rect(rect: &CGRect, radius: CGFloat) -> CGSRegion {
+    let corner_strip_count = radius as usize;
+    let mut rects = Vec::with_capacity(corner_strip_count * 2 + 1);
+    for i in 0..corner_strip_count {
+        let y = (i as CGFloat) + 1.0;
+        let ry = radius - y;
+        let x = radius - (radius * radius - ry * ry).sqrt();
+        let size = CGSize::new(rect.size.width - x * 2.0, 1.0);
+        rects.push(CGRect {
+            origin: CGPoint::new(rect.origin.x + x, rect.origin.y + y),
+            size: size,
+        });
+        rects.push(CGRect {
+            origin: CGPoint::new(rect.origin.x + x, rect.origin.y + rect.size.height - y - 1.0),
+            size: size,
+        });
     }
+    rects.push(rect.inset(&CGSize::new(0.0, radius)));
+    CGSRegion::from_rects(&rects[..])
 }
 
 thread_local! {
