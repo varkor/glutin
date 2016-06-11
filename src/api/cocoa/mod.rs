@@ -1031,6 +1031,13 @@ impl Clone for IdRef {
 
 #[allow(non_snake_case)]
 unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
+    unsafe fn mousePosition(window: &Window, nsevent: &id) -> (i32, i32) {
+        let window_point = nsevent.locationInWindow();
+        let scale_factor = window.hidpi_factor();
+        ((scale_factor * window_point.x as f32) as i32,
+         (scale_factor * window_point.y as f32) as i32)
+    }
+
     if nsevent == nil { return None; }
 
     let event_type = nsevent.eventType();
@@ -1041,32 +1048,20 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
 
     match event_type {
         NSLeftMouseDown         => {
-            let window_point = nsevent.locationInWindow();
-            let scale_factor = window.hidpi_factor();
             Some(MouseInput(Pressed, MouseButton::Left,
-                           Some(((scale_factor * window_point.x as f32) as i32,
-                                (scale_factor * window_point.y as f32) as i32))))
+                           Some(mousePosition(window, &nsevent))))
         },
         NSLeftMouseUp           => {
-            let window_point = nsevent.locationInWindow();
-            let scale_factor = window.hidpi_factor();
             Some(MouseInput(Released, MouseButton::Left,
-                           Some(((scale_factor * window_point.x as f32) as i32,
-                                (scale_factor * window_point.y as f32) as i32))))
+                           Some(mousePosition(window, &nsevent))))
         },
         NSRightMouseDown        => {
-            let window_point = nsevent.locationInWindow();
-            let scale_factor = window.hidpi_factor();
             Some(MouseInput(Pressed, MouseButton::Right,
-                           Some(((scale_factor * window_point.x as f32) as i32,
-                                (scale_factor * window_point.y as f32) as i32))))
+                            Some(mousePosition(window, &nsevent))))
         },
         NSRightMouseUp          => {
-            let window_point = nsevent.locationInWindow();
-            let scale_factor = window.hidpi_factor();
             Some(MouseInput(Released, MouseButton::Right,
-                           Some(((scale_factor * window_point.x as f32) as i32,
-                                (scale_factor * window_point.y as f32) as i32))))
+                            Some(mousePosition(window, &nsevent))))
         },
         NSMouseMoved            |
         NSLeftMouseDragged      |
