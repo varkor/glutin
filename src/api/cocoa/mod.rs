@@ -23,8 +23,8 @@ use objc::declare::ClassDecl;
 use cgl::{CGLEnable, kCGLCECrashOnRemovedFunctions, CGLSetParameter, kCGLCPSurfaceOpacity};
 
 use cocoa::base::{id, nil};
-use cocoa::foundation::{NSAutoreleasePool, NSDate, NSDefaultRunLoopMode, NSPoint, NSRect, NSSize,
-                        NSString, NSUInteger};
+use cocoa::foundation::{NSAutoreleasePool, NSArray, NSDate, NSDefaultRunLoopMode, NSPoint, NSRect};
+use cocoa::foundation::{NSRunLoop, NSSize, NSString, NSUInteger};
 use cocoa::appkit;
 use cocoa::appkit::*;
 use cocoa::appkit::NSEventSubtype::*;
@@ -80,6 +80,8 @@ struct DelegateState {
     view: IdRef,
     window: IdRef,
     resize_handler: Option<fn(u32, u32)>,
+    visible: bool,
+    decorations: bool,
 
     /// Events that have been retreived with XLib but not dispatched with iterators yet
     pending_events: Mutex<VecDeque<Event>>,
@@ -87,7 +89,7 @@ struct DelegateState {
 
 struct WindowDelegate {
     state: Box<DelegateState>,
-    _this: IdRef,
+    this: IdRef,
 }
 
 impl WindowDelegate {
@@ -140,6 +142,26 @@ impl WindowDelegate {
             }
         }
 
+        extern fn activate_with_view(this: &Object, _: Sel, view: id) {
+            unsafe {
+                let this: *mut Object = this as *const Object as *mut Object;
+                let state: *mut c_void = *(*this).get_ivar("glutinState");
+                let state = state as *mut DelegateState;
+
+                NSApp().activateIgnoringOtherApps_(YES);
+
+                let window = view.window();
+                window.makeKeyWindow();
+                if (*state).visible {
+                    window.orderFrontRegardless();
+                }
+
+                if !(*state).decorations {
+                    update_surface_and_window_shape(view)
+                }
+            }
+        }
+
         static mut delegate_class: *const Class = 0 as *const Class;
         static INIT: Once = ONCE_INIT;
 
@@ -158,6 +180,9 @@ impl WindowDelegate {
                 window_did_become_key as extern fn(&Object, Sel, id));
             decl.add_method(sel!(windowDidResignKey:),
                 window_did_resign_key as extern fn(&Object, Sel, id));
+
+            decl.add_method(sel!(activateWithView:),
+                activate_with_view as extern fn(&Object, Sel, id));
 
             // Store internal state as user data
             decl.add_ivar::<*mut c_void>("glutinState");
@@ -180,7 +205,7 @@ impl WindowDelegate {
             (&mut **delegate).set_ivar("glutinState", state_ptr as *mut ::std::os::raw::c_void);
             let _: () = msg_send![*state.window, setDelegate:*delegate];
 
-            WindowDelegate { state: state, _this: delegate }
+            WindowDelegate { state: state, this: delegate }
         }
     }
 }
@@ -334,34 +359,33 @@ impl Window {
             Err(e) => { return Err(OsError(format!("Couldn't create OpenGL context: {}", e))); },
         };
 
-        unsafe {
-            app.activateIgnoringOtherApps_(YES);
-            if win_attribs.visible {
-                window.makeKeyAndOrderFront_(nil);
-            } else {
-                window.makeKeyWindow();
-            }
-
-            if !win_attribs.decorations {
-                update_surface_and_window_shape(*view)
-            }
-        }
-
         let ds = DelegateState {
             context: context.clone(),
             view: view.clone(),
             window: window.clone(),
             resize_handler: None,
+            visible: win_attribs.visible,
+            decorations: win_attribs.decorations,
             pending_events: Mutex::new(VecDeque::new()),
         };
 
         let window = Window {
-            view: view,
+            view: view.clone(),
             window: window,
             context: context,
             pixel_format: pf,
             delegate: WindowDelegate::new(ds),
         };
+
+        unsafe {
+            let run_loop: id = NSRunLoop::currentRunLoop();
+            let modes: id = NSArray::arrayWithObject(nil, NSDefaultRunLoopMode);
+            run_loop.performSelector_target_argument_order_modes_(sel!(activateWithView:),
+                                                                  *window.delegate.this,
+                                                                  *view,
+                                                                  0,
+                                                                  modes);
+        }
 
         Ok(window)
     }
