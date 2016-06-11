@@ -1040,10 +1040,34 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
     }
 
     match event_type {
-        NSLeftMouseDown         => { Some(MouseInput(Pressed, MouseButton::Left)) },
-        NSLeftMouseUp           => { Some(MouseInput(Released, MouseButton::Left)) },
-        NSRightMouseDown        => { Some(MouseInput(Pressed, MouseButton::Right)) },
-        NSRightMouseUp          => { Some(MouseInput(Released, MouseButton::Right)) },
+        NSLeftMouseDown         => {
+            let window_point = nsevent.locationInWindow();
+            let scale_factor = window.hidpi_factor();
+            Some(MouseInput(Pressed, MouseButton::Left,
+                           Some(((scale_factor * window_point.x as f32) as i32,
+                                (scale_factor * window_point.y as f32) as i32))))
+        },
+        NSLeftMouseUp           => {
+            let window_point = nsevent.locationInWindow();
+            let scale_factor = window.hidpi_factor();
+            Some(MouseInput(Released, MouseButton::Left,
+                           Some(((scale_factor * window_point.x as f32) as i32,
+                                (scale_factor * window_point.y as f32) as i32))))
+        },
+        NSRightMouseDown        => {
+            let window_point = nsevent.locationInWindow();
+            let scale_factor = window.hidpi_factor();
+            Some(MouseInput(Pressed, MouseButton::Right,
+                           Some(((scale_factor * window_point.x as f32) as i32,
+                                (scale_factor * window_point.y as f32) as i32))))
+        },
+        NSRightMouseUp          => {
+            let window_point = nsevent.locationInWindow();
+            let scale_factor = window.hidpi_factor();
+            Some(MouseInput(Released, MouseButton::Right,
+                           Some(((scale_factor * window_point.x as f32) as i32,
+                                (scale_factor * window_point.y as f32) as i32))))
+        },
         NSMouseMoved            |
         NSLeftMouseDragged      |
         NSOtherMouseDragged     |

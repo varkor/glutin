@@ -34,7 +34,7 @@ pub enum Event {
     MouseWheel(MouseScrollDelta, TouchPhase),
 
     /// An event from the mouse has been received.
-    MouseInput(ElementState, MouseButton),
+    MouseInput(ElementState, MouseButton, Option<(i32, i32)>),
 
     /// Touchpad pressure event.
     ///
