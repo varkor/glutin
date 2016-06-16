@@ -189,9 +189,9 @@ impl XInputEventHandler {
                     Released
                 };
                 match event_data.detail as u32 {
-                    ffi::Button1 => Some(MouseInput(state, Left)),
-                    ffi::Button2 => Some(MouseInput(state, Middle)),
-                    ffi::Button3 => Some(MouseInput(state, Right)),
+                    ffi::Button1 => Some(MouseInput(state, Left, None)),
+                    ffi::Button2 => Some(MouseInput(state, Middle, None)),
+                    ffi::Button3 => Some(MouseInput(state, Right, None)),
                     ffi::Button4 | ffi::Button5 => {
                         if event_data.flags & ffi::XIPointerEmulated == 0 {
                             // scroll event from a traditional wheel with

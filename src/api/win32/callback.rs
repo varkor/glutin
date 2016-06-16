@@ -169,7 +169,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             use events::Event::MouseInput;
             use events::MouseButton::Left;
             use events::ElementState::Pressed;
-            send_event(window, MouseInput(Pressed, Left));
+            send_event(window, MouseInput(Pressed, Left, None));
             0
         },
 
@@ -177,7 +177,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             use events::Event::MouseInput;
             use events::MouseButton::Left;
             use events::ElementState::Released;
-            send_event(window, MouseInput(Released, Left));
+            send_event(window, MouseInput(Released, Left, None));
             0
         },
 
@@ -185,7 +185,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             use events::Event::MouseInput;
             use events::MouseButton::Right;
             use events::ElementState::Pressed;
-            send_event(window, MouseInput(Pressed, Right));
+            send_event(window, MouseInput(Pressed, Right, None));
             0
         },
 
@@ -193,7 +193,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             use events::Event::MouseInput;
             use events::MouseButton::Right;
             use events::ElementState::Released;
-            send_event(window, MouseInput(Released, Right));
+            send_event(window, MouseInput(Released, Right, None));
             0
         },
 
@@ -201,7 +201,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             use events::Event::MouseInput;
             use events::MouseButton::Middle;
             use events::ElementState::Pressed;
-            send_event(window, MouseInput(Pressed, Middle));
+            send_event(window, MouseInput(Pressed, Middle, None));
             0
         },
 
@@ -209,7 +209,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             use events::Event::MouseInput;
             use events::MouseButton::Middle;
             use events::ElementState::Released;
-            send_event(window, MouseInput(Released, Middle));
+            send_event(window, MouseInput(Released, Middle, None));
             0
         },
 
@@ -227,7 +227,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             use events::MouseButton::Other;
             use events::ElementState::Released;
             let xbutton = winapi::HIWORD(wparam as winapi::DWORD) as winapi::c_int; 
-            send_event(window, MouseInput(Released, Other(xbutton as u8)));
+            send_event(window, MouseInput(Released, Other(xbutton as u8), None));
             0
         },
 

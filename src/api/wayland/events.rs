@@ -83,7 +83,8 @@ pub fn translate_event(
                             0x112 => MouseButton::Middle,
                             // TODO figure out the translation ?
                             _ => return None
-                        }
+                        },
+                        None
                     ), surface))
                 } else {
                     None
