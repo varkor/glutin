@@ -1031,11 +1031,19 @@ impl Clone for IdRef {
 
 #[allow(non_snake_case)]
 unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
-    unsafe fn mousePosition(window: &Window, nsevent: &id) -> (i32, i32) {
+    unsafe fn get_mouse_position(window: &Window, nsevent: id) -> (i32, i32) {
         let window_point = nsevent.locationInWindow();
+        let cWindow: id = msg_send![nsevent, window];
+        let view_point = if cWindow == nil {
+            let window_rect = window.window.convertRectFromScreen_(NSRect::new(window_point, NSSize::new(0.0, 0.0)));
+            window.view.convertPoint_fromView_(window_rect.origin, nil)
+        } else {
+            window.view.convertPoint_fromView_(window_point, nil)
+        };
+        let view_rect = NSView::frame(*window.view);
         let scale_factor = window.hidpi_factor();
-        ((scale_factor * window_point.x as f32) as i32,
-         (scale_factor * window_point.y as f32) as i32)
+        ((scale_factor * view_point.x as f32) as i32,
+         (scale_factor * (view_rect.size.height - view_point.y) as f32) as i32)
     }
 
     if nsevent == nil { return None; }
@@ -1049,37 +1057,26 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
     match event_type {
         NSLeftMouseDown         => {
             Some(MouseInput(Pressed, MouseButton::Left,
-                           Some(mousePosition(window, &nsevent))))
+                           Some(get_mouse_position(window, nsevent))))
         },
         NSLeftMouseUp           => {
             Some(MouseInput(Released, MouseButton::Left,
-                           Some(mousePosition(window, &nsevent))))
+                            Some(get_mouse_position(window, nsevent))))
         },
         NSRightMouseDown        => {
             Some(MouseInput(Pressed, MouseButton::Right,
-                            Some(mousePosition(window, &nsevent))))
+                            Some(get_mouse_position(window, nsevent))))
         },
         NSRightMouseUp          => {
             Some(MouseInput(Released, MouseButton::Right,
-                            Some(mousePosition(window, &nsevent))))
+                            Some(get_mouse_position(window, nsevent))))
         },
         NSMouseMoved            |
         NSLeftMouseDragged      |
         NSOtherMouseDragged     |
         NSRightMouseDragged     => {
-            let window_point = nsevent.locationInWindow();
-            let cWindow: id = msg_send![nsevent, window];
-            let view_point = if cWindow == nil {
-                let window_rect = window.window.convertRectFromScreen_(NSRect::new(window_point, NSSize::new(0.0, 0.0)));
-                window.view.convertPoint_fromView_(window_rect.origin, nil)
-            } else {
-                window.view.convertPoint_fromView_(window_point, nil)
-            };
-            let view_rect = NSView::frame(*window.view);
-            let scale_factor = window.hidpi_factor();
-
-            Some(MouseMoved((scale_factor * view_point.x as f32) as i32,
-                            (scale_factor * (view_rect.size.height - view_point.y) as f32) as i32))
+            let (x, y) = get_mouse_position(window, nsevent);
+            Some(MouseMoved(x, y))
         },
         NSKeyDown => {
             let mut events = VecDeque::new();
