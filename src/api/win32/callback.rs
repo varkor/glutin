@@ -218,7 +218,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             use events::MouseButton::Other;
             use events::ElementState::Pressed;
             let xbutton = winapi::HIWORD(wparam as winapi::DWORD) as winapi::c_int; // waiting on PR for winapi to add GET_XBUTTON_WPARAM
-            send_event(window, MouseInput(Pressed, Other(xbutton as u8)));
+            send_event(window, MouseInput(Pressed, Other(xbutton as u8), None));
             0
         },
 
