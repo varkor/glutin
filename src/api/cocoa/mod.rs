@@ -566,7 +566,7 @@ impl Window {
             let content_view_bounds = NSRect::new(NSPoint::new(0., 0.),
                                                   NSSize::new(window_bounds.size.width,
                                                               window_bounds.size.height));
-            content_view = content_view.initWithFrame_(content_view_bounds);
+            content_view = NSView::initWithFrame_(content_view, content_view_bounds);
             content_view.setAutoresizingMask_(NSViewWidthSizable | NSViewHeightSizable);
             content_view.setWantsBestResolutionOpenGLSurface_(YES);
 
@@ -575,7 +575,7 @@ impl Window {
                             NSSize::new(window_bounds.size.width,
                                         window_bounds.size.height - TITLEBAR_HEIGHT));
             let nondraggable_region_view: id =
-                NSView::alloc(nil).initWithFrame_(nondraggable_region_bounds);
+                NSView::initWithFrame_(NSView::alloc(nil), nondraggable_region_bounds);
             nondraggable_region_view.setOpaque_(YES);
             nondraggable_region_view.setAutoresizingMask_(NSViewWidthSizable |
                                                           NSViewHeightSizable);
@@ -629,7 +629,7 @@ impl Window {
                         }
                     };
 
-                    cxt.setView_(view);
+                    NSOpenGLContext::setView_(*cxt, view);
                     let value = if opengl.vsync { 1 } else { 0 };
                     cxt.setValues_forParameter_(&value, NSOpenGLContextParameter::NSOpenGLCPSwapInterval);
 
