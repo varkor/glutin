@@ -7,11 +7,8 @@ use libc;
 use ContextError;
 use GlAttributes;
 use GlContext;
-use GlProfile;
-use GlRequest;
 use PixelFormat;
 use PixelFormatRequirements;
-use ReleaseBehavior;
 use Robustness;
 use WindowAttributes;
 use native_monitor::NativeMonitorId;
@@ -43,14 +40,11 @@ use std::collections::VecDeque;
 use std::str::FromStr;
 use std::str::from_utf8;
 use std::sync::Mutex;
-use std::ascii::AsciiExt;
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::env;
 
-use events::ElementState::{Pressed, Released};
-use events::Event::{Awakened, MouseInput, MouseMoved, ReceivedCharacter, KeyboardInput};
-use events::Event::{MouseWheel, Closed, Focused, TouchpadPressure};
+use events::ElementState;
 use events::{self, MouseButton, TouchPhase};
 
 pub use self::monitor::{MonitorId, get_available_monitors, get_primary_monitor};
@@ -102,7 +96,7 @@ impl WindowDelegate {
             unsafe {
                 let state: *mut c_void = *this.get_ivar("glutinState");
                 let state = state as *mut DelegateState;
-                (*state).pending_events.lock().unwrap().push_back(Closed);
+                (*state).pending_events.lock().unwrap().push_back(Event::Closed);
             }
             YES
         }
@@ -130,7 +124,7 @@ impl WindowDelegate {
 
                 let state: *mut c_void = *this.get_ivar("glutinState");
                 let state = state as *mut DelegateState;
-                (*state).pending_events.lock().unwrap().push_back(Focused(true));
+                (*state).pending_events.lock().unwrap().push_back(Event::Focused(true));
             }
         }
 
@@ -138,7 +132,7 @@ impl WindowDelegate {
             unsafe {
                 let state: *mut c_void = *this.get_ivar("glutinState");
                 let state = state as *mut DelegateState;
-                (*state).pending_events.lock().unwrap().push_back(Focused(false));
+                (*state).pending_events.lock().unwrap().push_back(Event::Focused(false));
             }
         }
 
@@ -219,7 +213,7 @@ impl Drop for WindowDelegate {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct PlatformSpecificWindowBuilderAttributes {
     pub activation_policy: ActivationPolicy,
     pub app_name: Option<String>,
@@ -265,8 +259,8 @@ impl<'a> Iterator for PollEventsIterator<'a> {
         unsafe {
             let pool = NSAutoreleasePool::new(nil);
 
-            let nsevent = NSApp().nextEventMatchingMask_untilDate_inMode_dequeue_(
-                NSAnyEventMask.bits() | NSEventMaskPressure.bits(),
+            let nsevent = appkit::NSApp().nextEventMatchingMask_untilDate_inMode_dequeue_(
+                appkit::NSAnyEventMask.bits() | appkit::NSEventMaskPressure.bits(),
                 NSDate::distantPast(nil),
                 NSDefaultRunLoopMode,
                 YES);
@@ -294,8 +288,8 @@ impl<'a> Iterator for WaitEventsIterator<'a> {
         unsafe {
             let pool = NSAutoreleasePool::new(nil);
 
-            let nsevent = NSApp().nextEventMatchingMask_untilDate_inMode_dequeue_(
-                NSAnyEventMask.bits() | NSEventMaskPressure.bits(),
+            let nsevent = appkit::NSApp().nextEventMatchingMask_untilDate_inMode_dequeue_(
+                appkit::NSAnyEventMask.bits() | appkit::NSEventMaskPressure.bits(),
                 NSDate::distantFuture(nil),
                 NSDefaultRunLoopMode,
                 YES);
@@ -305,7 +299,7 @@ impl<'a> Iterator for WaitEventsIterator<'a> {
         }
 
         if event.is_none() {
-            return Some(Awakened);
+            return Some(Event::Awakened);
         } else {
             return event;
         }
@@ -395,7 +389,7 @@ impl Window {
                   icon_path: Option<PathBuf>)
                   -> Option<id> {
         unsafe {
-            let app = NSApp();
+            let app = appkit::NSApp();
             if app == nil {
                 None
             } else {
@@ -436,13 +430,13 @@ impl Window {
                         _ => panic!("OS X monitors should always have a numeric native ID")
                     };
                     let matching_screen = {
-                        let screens = NSScreen::screens(nil);
+                        let screens = appkit::NSScreen::screens(nil);
                         let count: NSUInteger = msg_send![screens, count];
                         let key = IdRef::new(NSString::alloc(nil).init_str("NSScreenNumber"));
                         let mut matching_screen: Option<id> = None;
                         for i in 0..count {
                             let screen = msg_send![screens, objectAtIndex:i as NSUInteger];
-                            let device_description = NSScreen::deviceDescription(screen);
+                            let device_description = appkit::NSScreen::deviceDescription(screen);
                             let value: id = msg_send![device_description, objectForKey:*key];
                             if value != nil {
                                 let screen_number: NSUInteger = msg_send![value, unsignedIntegerValue];
@@ -454,12 +448,12 @@ impl Window {
                         }
                         matching_screen
                     };
-                    Some(matching_screen.unwrap_or(NSScreen::mainScreen(nil)))
+                    Some(matching_screen.unwrap_or(appkit::NSScreen::mainScreen(nil)))
                 },
                 None => None
             };
             let frame = match screen {
-                Some(screen) => NSScreen::frame(screen),
+                Some(screen) => appkit::NSScreen::frame(screen),
                 None => {
                     let (width, height) = attrs.dimensions.unwrap_or((800, 600));
                     NSRect::new(NSPoint::new(0., 0.), NSSize::new(width as f64, height as f64))
@@ -502,17 +496,18 @@ impl Window {
             let window = IdRef::new(window.initWithContentRect_styleMask_backing_defer_(
                 frame,
                 masks,
-                NSBackingStoreBuffered,
+                appkit::NSBackingStoreBuffered,
                 NO,
             ));
 
             window.non_nil().map(|window| {
                 let title = IdRef::new(NSString::alloc(nil).init_str(&attrs.title));
+                window.setReleasedWhenClosed_(NO);
                 window.setTitle_(*title);
                 window.setAcceptsMouseMovedEvents_(YES);
 
                 if screen.is_some() {
-                    window.setLevel_(NSMainMenuWindowLevel as i64 + 1);
+                    window.setLevel_(appkit::NSMainMenuWindowLevel as i64 + 1);
                 }
                 else {
                     window.center();
@@ -600,7 +595,7 @@ impl Window {
 
                 if let Some(cxt) = context.non_nil() {
                     let pf = {
-                        let get_attr = |attrib: NSOpenGLPixelFormatAttribute| -> i32 {
+                        let get_attr = |attrib: appkit::NSOpenGLPixelFormatAttribute| -> i32 {
                             let mut value = 0;
 
                             NSOpenGLPixelFormat::getValues_forAttribute_forVirtualScreen_(
@@ -613,15 +608,15 @@ impl Window {
                         };
 
                         PixelFormat {
-                            hardware_accelerated: get_attr(NSOpenGLPFAAccelerated) != 0,
-                            color_bits: (get_attr(NSOpenGLPFAColorSize) - get_attr(NSOpenGLPFAAlphaSize)) as u8,
-                            alpha_bits: get_attr(NSOpenGLPFAAlphaSize) as u8,
-                            depth_bits: get_attr(NSOpenGLPFADepthSize) as u8,
-                            stencil_bits: get_attr(NSOpenGLPFAStencilSize) as u8,
-                            stereoscopy: get_attr(NSOpenGLPFAStereo) != 0,
-                            double_buffer: get_attr(NSOpenGLPFADoubleBuffer) != 0,
-                            multisampling: if get_attr(NSOpenGLPFAMultisample) > 0 {
-                                Some(get_attr(NSOpenGLPFASamples) as u16)
+                            hardware_accelerated: get_attr(appkit::NSOpenGLPFAAccelerated) != 0,
+                            color_bits: (get_attr(appkit::NSOpenGLPFAColorSize) - get_attr(appkit::NSOpenGLPFAAlphaSize)) as u8,
+                            alpha_bits: get_attr(appkit::NSOpenGLPFAAlphaSize) as u8,
+                            depth_bits: get_attr(appkit::NSOpenGLPFADepthSize) as u8,
+                            stencil_bits: get_attr(appkit::NSOpenGLPFAStencilSize) as u8,
+                            stereoscopy: get_attr(appkit::NSOpenGLPFAStereo) != 0,
+                            double_buffer: get_attr(appkit::NSOpenGLPFADoubleBuffer) != 0,
+                            multisampling: if get_attr(appkit::NSOpenGLPFAMultisample) > 0 {
+                                Some(get_attr(appkit::NSOpenGLPFASamples) as u16)
                             } else {
                                 None
                             },
@@ -631,7 +626,7 @@ impl Window {
 
                     NSOpenGLContext::setView_(*cxt, view);
                     let value = if opengl.vsync { 1 } else { 0 };
-                    cxt.setValues_forParameter_(&value, NSOpenGLContextParameter::NSOpenGLCPSwapInterval);
+                    cxt.setValues_forParameter_(&value, appkit::NSOpenGLContextParameter::NSOpenGLCPSwapInterval);
 
                     CGLEnable(cxt.CGLContextObj() as *mut _, kCGLCECrashOnRemovedFunctions);
 
@@ -825,11 +820,11 @@ impl Window {
         }
     }
 
-    unsafe fn modifier_event(event: id, keymask: NSEventModifierFlags, key: events::VirtualKeyCode, key_pressed: bool) -> Option<Event> {
+    unsafe fn modifier_event(event: id, keymask: appkit::NSEventModifierFlags, key: events::VirtualKeyCode, key_pressed: bool) -> Option<Event> {
         if !key_pressed && NSEvent::modifierFlags(event).contains(keymask) {
-            return Some(KeyboardInput(Pressed, NSEvent::keyCode(event) as u8, Some(key)));
+            return Some(Event::KeyboardInput(ElementState::Pressed, NSEvent::keyCode(event) as u8, Some(key)));
         } else if key_pressed && !NSEvent::modifierFlags(event).contains(keymask) {
-            return Some(KeyboardInput(Released, NSEvent::keyCode(event) as u8, Some(key)));
+            return Some(Event::KeyboardInput(ElementState::Released, NSEvent::keyCode(event) as u8, Some(key)));
         }
 
         return None;
@@ -923,7 +918,10 @@ impl Window {
 
         unsafe {
             // TODO: Check for errors.
-            let _ = CGWarpMouseCursorPosition(CGPoint { x: cursor_x as CGFloat, y: cursor_y as CGFloat });
+            let _ = CGWarpMouseCursorPosition(appkit::CGPoint {
+                x: cursor_x as appkit::CGFloat,
+                y: cursor_y as appkit::CGFloat,
+            });
             let _ = CGAssociateMouseAndMouseCursorPosition(true);
         }
 
@@ -1029,7 +1027,7 @@ impl Clone for IdRef {
     }
 }
 
-#[allow(non_snake_case)]
+#[allow(non_snake_case, non_upper_case_globals)]
 unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
     unsafe fn get_mouse_position(window: &Window, nsevent: id) -> (i32, i32) {
         let window_point = nsevent.locationInWindow();
@@ -1056,48 +1054,48 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
 
     match event_type {
         NSLeftMouseDown         => {
-            Some(MouseInput(Pressed, MouseButton::Left,
-                           Some(get_mouse_position(window, nsevent))))
+            Some(Event::MouseInput(ElementState::Pressed, MouseButton::Left,
+                                   Some(get_mouse_position(window, nsevent))))
         },
         NSLeftMouseUp           => {
-            Some(MouseInput(Released, MouseButton::Left,
-                            Some(get_mouse_position(window, nsevent))))
+            Some(Event::MouseInput(ElementState::Released, MouseButton::Left,
+                                   Some(get_mouse_position(window, nsevent))))
         },
         NSRightMouseDown        => {
-            Some(MouseInput(Pressed, MouseButton::Right,
-                            Some(get_mouse_position(window, nsevent))))
+            Some(Event::MouseInput(ElementState::Pressed, MouseButton::Right,
+                                   Some(get_mouse_position(window, nsevent))))
         },
         NSRightMouseUp          => {
-            Some(MouseInput(Released, MouseButton::Right,
-                            Some(get_mouse_position(window, nsevent))))
+            Some(Event::MouseInput(ElementState::Released, MouseButton::Right,
+                                   Some(get_mouse_position(window, nsevent))))
         },
         NSMouseMoved            |
         NSLeftMouseDragged      |
         NSOtherMouseDragged     |
         NSRightMouseDragged     => {
             let (x, y) = get_mouse_position(window, nsevent);
-            Some(MouseMoved(x, y))
+            Some(Event::MouseMoved(x, y))
         },
-        NSKeyDown => {
+        appkit::NSKeyDown => {
             let mut events = VecDeque::new();
             let received_c_str = nsevent.characters().UTF8String();
             let received_str = CStr::from_ptr(received_c_str);
             for received_char in from_utf8(received_str.to_bytes()).unwrap().chars() {
-                events.push_back(ReceivedCharacter(received_char));
+                events.push_back(Event::ReceivedCharacter(received_char));
             }
 
             let vkey =  event::vkeycode_to_element(NSEvent::keyCode(nsevent));
-            events.push_back(KeyboardInput(Pressed, NSEvent::keyCode(nsevent) as u8, vkey));
+            events.push_back(Event::KeyboardInput(ElementState::Pressed, NSEvent::keyCode(nsevent) as u8, vkey));
             let event = events.pop_front();
             window.delegate.state.pending_events.lock().unwrap().extend(events.into_iter());
             event
         },
-        NSKeyUp => {
+        appkit::NSKeyUp => {
             let vkey =  event::vkeycode_to_element(NSEvent::keyCode(nsevent));
 
-            Some(KeyboardInput(Released, NSEvent::keyCode(nsevent) as u8, vkey))
+            Some(Event::KeyboardInput(ElementState::Released, NSEvent::keyCode(nsevent) as u8, vkey))
         },
-        NSFlagsChanged => {
+        appkit::NSFlagsChanged => {
             let mut events = VecDeque::new();
             let shift_modifier = Window::modifier_event(nsevent, appkit::NSShiftKeyMask, events::VirtualKeyCode::LShift, shift_pressed);
             if shift_modifier.is_some() {
@@ -1123,7 +1121,7 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
             window.delegate.state.pending_events.lock().unwrap().extend(events.into_iter());
             event
         },
-        NSScrollWheel => {
+        appkit::NSScrollWheel => {
             use events::MouseScrollDelta::{LineDelta, PixelDelta};
             let scale_factor = window.hidpi_factor();
             let delta = if nsevent.hasPreciseScrollingDeltas() == YES {
@@ -1134,14 +1132,14 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
                           scale_factor * nsevent.scrollingDeltaY() as f32)
             };
             let phase = match nsevent.phase() {
-                NSEventPhaseMayBegin | NSEventPhaseBegan => TouchPhase::Started,
-                NSEventPhaseEnded => TouchPhase::Ended,
+                appkit::NSEventPhaseMayBegin | appkit::NSEventPhaseBegan => TouchPhase::Started,
+                appkit::NSEventPhaseEnded => TouchPhase::Ended,
                 _ => TouchPhase::Moved,
             };
-            Some(MouseWheel(delta, phase))
+            Some(Event::MouseWheel(delta, phase))
         },
-        NSEventTypePressure => {
-            Some(TouchpadPressure(nsevent.pressure(), nsevent.stage()))
+        appkit::NSEventTypePressure => {
+            Some(Event::TouchpadPressure(nsevent.pressure(), nsevent.stage()))
         },
         _  => { None },
     }
