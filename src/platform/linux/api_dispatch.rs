@@ -34,7 +34,7 @@ enum Backend {
 lazy_static!(
     static ref BACKEND: Backend = {
         // Wayland backend is not production-ready yet so we disable it
-        if wayland::is_available() {
+        if false && wayland::is_available() {
             Backend::Wayland
         } else {
             match XConnection::new(Some(x_error_callback)) {
