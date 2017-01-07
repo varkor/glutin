@@ -1,6 +1,6 @@
 [package]
 name = "servo-glutin"
-version = "0.6.3"
+version = "0.6.4"
 authors = ["The glutin contributors, Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform OpenGL context provider."
 keywords = ["windowing", "opengl"]
@@ -52,4 +52,4 @@ wayland-client = { version = "0.5.4", features = ["egl", "dlopen"] }
 wayland-kbd = "0.3.3"
 wayland-window = "0.2.2"
 x11-dl = "2.4"
-image = { version = "0.10", optional = true }
+image = { version = "0.12", optional = true }
