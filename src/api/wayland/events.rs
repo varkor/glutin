@@ -101,7 +101,8 @@ pub fn translate_event(
                                 MouseScrollDelta::PixelDelta(0.0, amplitude as f32)
                             }
                         },
-                        TouchPhase::Moved
+                        TouchPhase::Moved,
+                        None
                     ), surface))
                 } else {
                     None

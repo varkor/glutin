@@ -140,7 +140,7 @@ pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
             let value = value as i32;
             let value = value as f32 / winapi::WHEEL_DELTA as f32;
 
-            send_event(window, MouseWheel(LineDelta(0.0, value), TouchPhase::Moved));
+            send_event(window, MouseWheel(LineDelta(0.0, value), TouchPhase::Moved, None));
 
             0
         },
