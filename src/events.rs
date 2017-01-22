@@ -31,7 +31,7 @@ pub enum Event {
     MouseMoved(i32, i32),
 
     /// A mouse wheel movement or touchpad scroll occurred.
-    MouseWheel(MouseScrollDelta, TouchPhase),
+    MouseWheel(MouseScrollDelta, TouchPhase, Option<(i32, i32)>),
 
     /// An event from the mouse has been received.
     MouseInput(ElementState, MouseButton, Option<(i32, i32)>),

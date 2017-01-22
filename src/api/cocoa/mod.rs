@@ -1136,7 +1136,11 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
                 appkit::NSEventPhaseEnded => TouchPhase::Ended,
                 _ => TouchPhase::Moved,
             };
-            Some(Event::MouseWheel(delta, phase))
+            let mouse_position = match phase {
+                TouchPhase::Started => Some(get_mouse_position(window, nsevent)),
+                _ => None
+            };
+            Some(Event::MouseWheel(delta, phase, mouse_position))
         },
         appkit::NSEventTypePressure => {
             Some(Event::TouchpadPressure(nsevent.pressure(), nsevent.stage()))
