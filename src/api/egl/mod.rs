@@ -25,8 +25,6 @@ pub enum NativeDisplay {
     X11(Option<ffi::EGLNativeDisplayType>),
     /// `None` means `EGL_DEFAULT_DISPLAY`.
     Gbm(Option<ffi::EGLNativeDisplayType>),
-    /// `None` means `EGL_DEFAULT_DISPLAY`.
-    Wayland(Option<ffi::EGLNativeDisplayType>),
     /// `EGL_DEFAULT_DISPLAY` is mandatory for Android.
     Android,
     // TODO: should be `EGLDeviceEXT`
@@ -110,22 +108,6 @@ fn get_native_display(egl: &ffi::egl::Egl,
                                                ptr::null()) }
         },
 
-        NativeDisplay::Wayland(display) if has_dp_extension("EGL_KHR_platform_wayland") &&
-                                           egl.GetPlatformDisplay.is_loaded() =>
-        {
-            let d = display.unwrap_or(ffi::egl::DEFAULT_DISPLAY as *const _);
-            unsafe { egl.GetPlatformDisplay(ffi::egl::PLATFORM_WAYLAND_KHR, d as *mut _,
-                                            ptr::null()) }
-        },
-
-        NativeDisplay::Wayland(display) if has_dp_extension("EGL_EXT_platform_wayland") &&
-                                           egl.GetPlatformDisplayEXT.is_loaded() =>
-        {
-            let d = display.unwrap_or(ffi::egl::DEFAULT_DISPLAY as *const _);
-            unsafe { egl.GetPlatformDisplayEXT(ffi::egl::PLATFORM_WAYLAND_EXT, d as *mut _,
-                                               ptr::null()) }
-        },
-
         // TODO: This will never be reached right now, as the android egl bindings
         // use the static generator, so can't rely on GetPlatformDisplay(EXT).
         NativeDisplay::Android if has_dp_extension("EGL_KHR_platform_android") &&
@@ -143,12 +125,11 @@ fn get_native_display(egl: &ffi::egl::Egl,
         },
 
         NativeDisplay::X11(Some(display)) | NativeDisplay::Gbm(Some(display)) |
-        NativeDisplay::Wayland(Some(display)) | NativeDisplay::Device(display) |
-        NativeDisplay::Other(Some(display)) => {
+        NativeDisplay::Device(display) | NativeDisplay::Other(Some(display)) => {
             unsafe { egl.GetDisplay(display as *mut _) }
         }
 
-        NativeDisplay::X11(None) | NativeDisplay::Gbm(None) | NativeDisplay::Wayland(None) |
+        NativeDisplay::X11(None) | NativeDisplay::Gbm(None) |
         NativeDisplay::Android | NativeDisplay::Other(None) => {
             unsafe { egl.GetDisplay(ffi::egl::DEFAULT_DISPLAY as *mut _) }
         },

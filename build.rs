@@ -42,12 +42,10 @@ fn main() {
                           "EGL_KHR_create_context_no_error",
                           "EGL_KHR_platform_x11",
                           "EGL_KHR_platform_android",
-                          "EGL_KHR_platform_wayland",
                           "EGL_KHR_platform_gbm",
                           "EGL_EXT_platform_base",
                           "EGL_EXT_platform_x11",
                           "EGL_MESA_platform_gbm",
-                          "EGL_EXT_platform_wayland",
                           "EGL_EXT_platform_device",
                       ])
             .write_bindings(gl_generator::StructGenerator, &mut file).unwrap();
@@ -80,12 +78,10 @@ fn main() {
                           "EGL_KHR_create_context_no_error",
                           "EGL_KHR_platform_x11",
                           "EGL_KHR_platform_android",
-                          "EGL_KHR_platform_wayland",
                           "EGL_KHR_platform_gbm",
                           "EGL_EXT_platform_base",
                           "EGL_EXT_platform_x11",
                           "EGL_MESA_platform_gbm",
-                          "EGL_EXT_platform_wayland",
                           "EGL_EXT_platform_device",
                       ])
             .write_bindings(gl_generator::StructGenerator, &mut file).unwrap();
@@ -99,12 +95,10 @@ fn main() {
                           "EGL_KHR_create_context_no_error",
                           "EGL_KHR_platform_x11",
                           "EGL_KHR_platform_android",
-                          "EGL_KHR_platform_wayland",
                           "EGL_KHR_platform_gbm",
                           "EGL_EXT_platform_base",
                           "EGL_EXT_platform_x11",
                           "EGL_MESA_platform_gbm",
-                          "EGL_EXT_platform_wayland",
                           "EGL_EXT_platform_device",
                       ])
             .write_bindings(gl_generator::StaticStructGenerator, &mut file).unwrap();
@@ -118,12 +112,10 @@ fn main() {
                           "EGL_KHR_create_context_no_error",
                           "EGL_KHR_platform_x11",
                           "EGL_KHR_platform_android",
-                          "EGL_KHR_platform_wayland",
                           "EGL_KHR_platform_gbm",
                           "EGL_EXT_platform_base",
                           "EGL_EXT_platform_x11",
                           "EGL_MESA_platform_gbm",
-                          "EGL_EXT_platform_wayland",
                           "EGL_EXT_platform_device",
                       ])
             .write_bindings(gl_generator::StaticStructGenerator, &mut file).unwrap();
