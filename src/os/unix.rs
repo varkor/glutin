@@ -27,7 +27,6 @@ impl WindowExt for Window {
     fn get_xlib_window(&self) -> Option<*mut libc::c_void> {
         match self.window {
             LinuxWindow::X(ref w) => Some(w.get_xlib_window()),
-            _ => None
         }
     }
 
@@ -35,7 +34,6 @@ impl WindowExt for Window {
     fn get_xlib_display(&self) -> Option<*mut libc::c_void> {
         match self.window {
             LinuxWindow::X(ref w) => Some(w.get_xlib_display()),
-            _ => None
         }
     }
 }

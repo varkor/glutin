@@ -16,7 +16,6 @@ use PixelFormatRequirements;
 use WindowAttributes;
 use libc;
 
-use api::wayland;
 use api::x11;
 use api::x11::XConnection;
 use api::x11::XError;
@@ -27,20 +26,14 @@ pub struct PlatformSpecificWindowBuilderAttributes;
 
 enum Backend {
     X(Arc<XConnection>),
-    Wayland,
     Error(XNotSupported),
 }
 
 lazy_static!(
     static ref BACKEND: Backend = {
-        // Wayland backend is not production-ready yet so we disable it
-        if false && wayland::is_available() {
-            Backend::Wayland
-        } else {
-            match XConnection::new(Some(x_error_callback)) {
-                Ok(x) => Backend::X(Arc::new(x)),
-                Err(e) => Backend::Error(e),
-            }
+        match XConnection::new(Some(x_error_callback)) {
+            Ok(x) => Backend::X(Arc::new(x)),
+            Err(e) => Backend::Error(e),
         }
     };
 );
@@ -48,16 +41,12 @@ lazy_static!(
 pub enum Window {
     #[doc(hidden)]
     X(x11::Window),
-    #[doc(hidden)]
-    Wayland(wayland::Window)
 }
 
 #[derive(Clone)]
 pub enum WindowProxy {
     #[doc(hidden)]
     X(x11::WindowProxy),
-    #[doc(hidden)]
-    Wayland(wayland::WindowProxy)
 }
 
 impl WindowProxy {
@@ -65,7 +54,6 @@ impl WindowProxy {
     pub fn wakeup_event_loop(&self) {
         match self {
             &WindowProxy::X(ref wp) => wp.wakeup_event_loop(),
-            &WindowProxy::Wayland(ref wp) => wp.wakeup_event_loop()
         }
     }
 }
@@ -75,18 +63,12 @@ pub enum MonitorId {
     #[doc(hidden)]
     X(x11::MonitorId),
     #[doc(hidden)]
-    Wayland(wayland::MonitorId),
-    #[doc(hidden)]
     None,
 }
 
 #[inline]
 pub fn get_available_monitors() -> VecDeque<MonitorId> {
     match *BACKEND {
-        Backend::Wayland => wayland::get_available_monitors()
-                                .into_iter()
-                                .map(MonitorId::Wayland)
-                                .collect(),
         Backend::X(ref connec) => x11::get_available_monitors(connec)
                                     .into_iter()
                                     .map(MonitorId::X)
@@ -98,7 +80,6 @@ pub fn get_available_monitors() -> VecDeque<MonitorId> {
 #[inline]
 pub fn get_primary_monitor() -> MonitorId {
     match *BACKEND {
-        Backend::Wayland => MonitorId::Wayland(wayland::get_primary_monitor()),
         Backend::X(ref connec) => MonitorId::X(x11::get_primary_monitor(connec)),
         Backend::Error(_) => MonitorId::None,
     }
@@ -109,7 +90,6 @@ impl MonitorId {
     pub fn get_name(&self) -> Option<String> {
         match self {
             &MonitorId::X(ref m) => m.get_name(),
-            &MonitorId::Wayland(ref m) => m.get_name(),
             &MonitorId::None => None,
         }
     }
@@ -118,7 +98,6 @@ impl MonitorId {
     pub fn get_native_identifier(&self) -> ::native_monitor::NativeMonitorId {
         match self {
             &MonitorId::X(ref m) => m.get_native_identifier(),
-            &MonitorId::Wayland(ref m) => m.get_native_identifier(),
             &MonitorId::None => unimplemented!()        // FIXME:
         }
     }
@@ -127,50 +106,13 @@ impl MonitorId {
     pub fn get_dimensions(&self) -> (u32, u32) {
         match self {
             &MonitorId::X(ref m) => m.get_dimensions(),
-            &MonitorId::Wayland(ref m) => m.get_dimensions(),
             &MonitorId::None => (800, 600),     // FIXME:
         }
     }
 }
 
 
-pub enum PollEventsIterator<'a> {
-    #[doc(hidden)]
-    X(x11::PollEventsIterator<'a>),
-    #[doc(hidden)]
-    Wayland(wayland::PollEventsIterator<'a>)
-}
-
-impl<'a> Iterator for PollEventsIterator<'a> {
-    type Item = Event;
-
-    #[inline]
-    fn next(&mut self) -> Option<Event> {
-        match self {
-            &mut PollEventsIterator::X(ref mut it) => it.next(),
-            &mut PollEventsIterator::Wayland(ref mut it) => it.next()
-        }
-    }
-}
-
-pub enum WaitEventsIterator<'a> {
-    #[doc(hidden)]
-    X(x11::WaitEventsIterator<'a>),
-    #[doc(hidden)]
-    Wayland(wayland::WaitEventsIterator<'a>)
-}
-
-impl<'a> Iterator for WaitEventsIterator<'a> {
-    type Item = Event;
-
-    #[inline]
-    fn next(&mut self) -> Option<Event> {
-        match self {
-            &mut WaitEventsIterator::X(ref mut it) => it.next(),
-            &mut WaitEventsIterator::Wayland(ref mut it) => it.next()
-        }
-    }
-}
+pub use api::x11::{PollEventsIterator, WaitEventsIterator};
 
 impl Window {
     #[inline]
@@ -179,19 +121,9 @@ impl Window {
                -> Result<Window, CreationError>
     {
         match *BACKEND {
-            Backend::Wayland => {
-                let opengl = opengl.clone().map_sharing(|w| match w {
-                    &Window::Wayland(ref w) => w,
-                    _ => panic!()       // TODO: return an error
-                });
-
-                wayland::Window::new(window, pf_reqs, &opengl).map(Window::Wayland)
-            },
-
             Backend::X(ref connec) => {
                 let opengl = opengl.clone().map_sharing(|w| match w {
                     &Window::X(ref w) => w,
-                    _ => panic!()       // TODO: return an error
                 });
 
                 x11::Window::new(connec, window, pf_reqs, &opengl).map(Window::X)
@@ -205,7 +137,6 @@ impl Window {
     pub fn set_title(&self, title: &str) {
         match self {
             &Window::X(ref w) => w.set_title(title),
-            &Window::Wayland(ref w) => w.set_title(title)
         }
     }
 
@@ -213,7 +144,6 @@ impl Window {
     pub fn show(&self) {
         match self {
             &Window::X(ref w) => w.show(),
-            &Window::Wayland(ref w) => w.show()
         }
     }
 
@@ -221,7 +151,6 @@ impl Window {
     pub fn hide(&self) {
         match self {
             &Window::X(ref w) => w.hide(),
-            &Window::Wayland(ref w) => w.hide()
         }
     }
 
@@ -229,7 +158,6 @@ impl Window {
     pub fn get_position(&self) -> Option<(i32, i32)> {
         match self {
             &Window::X(ref w) => w.get_position(),
-            &Window::Wayland(ref w) => w.get_position()
         }
     }
 
@@ -237,7 +165,6 @@ impl Window {
     pub fn set_position(&self, x: i32, y: i32) {
         match self {
             &Window::X(ref w) => w.set_position(x, y),
-            &Window::Wayland(ref w) => w.set_position(x, y)
         }
     }
 
@@ -245,7 +172,6 @@ impl Window {
     pub fn get_inner_size(&self) -> Option<(u32, u32)> {
         match self {
             &Window::X(ref w) => w.get_inner_size(),
-            &Window::Wayland(ref w) => w.get_inner_size()
         }
     }
 
@@ -253,7 +179,6 @@ impl Window {
     pub fn get_outer_size(&self) -> Option<(u32, u32)> {
         match self {
             &Window::X(ref w) => w.get_outer_size(),
-            &Window::Wayland(ref w) => w.get_outer_size()
         }
     }
 
@@ -261,7 +186,6 @@ impl Window {
     pub fn set_inner_size(&self, x: u32, y: u32) {
         match self {
             &Window::X(ref w) => w.set_inner_size(x, y),
-            &Window::Wayland(ref w) => w.set_inner_size(x, y)
         }
     }
 
@@ -269,23 +193,20 @@ impl Window {
     pub fn create_window_proxy(&self) -> WindowProxy {
         match self {
             &Window::X(ref w) => WindowProxy::X(w.create_window_proxy()),
-            &Window::Wayland(ref w) => WindowProxy::Wayland(w.create_window_proxy())
         }
     }
 
     #[inline]
     pub fn poll_events(&self) -> PollEventsIterator {
         match self {
-            &Window::X(ref w) => PollEventsIterator::X(w.poll_events()),
-            &Window::Wayland(ref w) => PollEventsIterator::Wayland(w.poll_events())
+            &Window::X(ref w) => w.poll_events(),
         }
     }
 
     #[inline]
     pub fn wait_events(&self) -> WaitEventsIterator {
         match self {
-            &Window::X(ref w) => WaitEventsIterator::X(w.wait_events()),
-            &Window::Wayland(ref w) => WaitEventsIterator::Wayland(w.wait_events())
+            &Window::X(ref w) => w.wait_events(),
         }
     }
 
@@ -293,7 +214,6 @@ impl Window {
     pub fn set_window_resize_callback(&mut self, callback: Option<fn(u32, u32)>) {
         match self {
             &mut Window::X(ref mut w) => w.set_window_resize_callback(callback),
-            &mut Window::Wayland(ref mut w) => w.set_window_resize_callback(callback)
         }
     }
 
@@ -301,7 +221,6 @@ impl Window {
     pub fn set_cursor(&self, cursor: MouseCursor) {
         match self {
             &Window::X(ref w) => w.set_cursor(cursor),
-            &Window::Wayland(ref w) => w.set_cursor(cursor)
         }
     }
 
@@ -309,7 +228,6 @@ impl Window {
     pub fn set_cursor_state(&self, state: CursorState) -> Result<(), String> {
         match self {
             &Window::X(ref w) => w.set_cursor_state(state),
-            &Window::Wayland(ref w) => w.set_cursor_state(state)
         }
     }
 
@@ -317,7 +235,6 @@ impl Window {
     pub fn hidpi_factor(&self) -> f32 {
        match self {
             &Window::X(ref w) => w.hidpi_factor(),
-            &Window::Wayland(ref w) => w.hidpi_factor()
         }
     }
 
@@ -325,7 +242,6 @@ impl Window {
     pub fn set_cursor_position(&self, x: i32, y: i32) -> Result<(), ()> {
         match self {
             &Window::X(ref w) => w.set_cursor_position(x, y),
-            &Window::Wayland(ref w) => w.set_cursor_position(x, y)
         }
     }
 
@@ -333,7 +249,6 @@ impl Window {
     pub fn platform_display(&self) -> *mut libc::c_void {
         match self {
             &Window::X(ref w) => w.platform_display(),
-            &Window::Wayland(ref w) => w.platform_display()
         }
     }
 
@@ -341,7 +256,6 @@ impl Window {
     pub fn platform_window(&self) -> *mut libc::c_void {
         match self {
             &Window::X(ref w) => w.platform_window(),
-            &Window::Wayland(ref w) => w.platform_window()
         }
     }
 }
@@ -351,7 +265,6 @@ impl GlContext for Window {
     unsafe fn make_current(&self) -> Result<(), ContextError> {
         match self {
             &Window::X(ref w) => w.make_current(),
-            &Window::Wayland(ref w) => w.make_current()
         }
     }
 
@@ -359,7 +272,6 @@ impl GlContext for Window {
     fn is_current(&self) -> bool {
         match self {
             &Window::X(ref w) => w.is_current(),
-            &Window::Wayland(ref w) => w.is_current()
         }
     }
 
@@ -367,7 +279,6 @@ impl GlContext for Window {
     fn get_proc_address(&self, addr: &str) -> *const () {
         match self {
             &Window::X(ref w) => w.get_proc_address(addr),
-            &Window::Wayland(ref w) => w.get_proc_address(addr)
         }
     }
 
@@ -375,7 +286,6 @@ impl GlContext for Window {
     fn swap_buffers(&self) -> Result<(), ContextError> {
         match self {
             &Window::X(ref w) => w.swap_buffers(),
-            &Window::Wayland(ref w) => w.swap_buffers()
         }
     }
 
@@ -383,7 +293,6 @@ impl GlContext for Window {
     fn get_api(&self) -> ::Api {
         match self {
             &Window::X(ref w) => w.get_api(),
-            &Window::Wayland(ref w) => w.get_api()
         }
     }
 
@@ -391,7 +300,6 @@ impl GlContext for Window {
     fn get_pixel_format(&self) -> PixelFormat {
         match self {
             &Window::X(ref w) => w.get_pixel_format(),
-            &Window::Wayland(ref w) => w.get_pixel_format()
         }
     }
 }

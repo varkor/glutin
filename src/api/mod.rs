@@ -6,7 +6,6 @@ pub mod egl;
 pub mod emscripten;
 pub mod glx;
 pub mod osmesa;
-pub mod wayland;
 pub mod wgl;
 pub mod win32;
 pub mod x11;
