@@ -503,7 +503,7 @@ impl Window {
             window.non_nil().map(|window| {
                 let title = IdRef::new(NSString::alloc(nil).init_str(&attrs.title));
                 window.setReleasedWhenClosed_(NO);
-                window.setTitle_(*title);
+                NSWindow::setTitle_(*window, *title);
                 window.setAcceptsMouseMovedEvents_(YES);
 
                 if screen.is_some() {
@@ -669,7 +669,7 @@ impl Window {
             let services_string = NSString::alloc(nil).init_str("Services");
             let menu = NSMenu::alloc(nil).initWithTitle_(services_string);
             let item = NSMenuItem::alloc(nil).init();
-            item.setTitle_(services_string);
+            NSWindow::setTitle_(item, services_string);
             item.setSubmenu_(menu);
             application_menu.addItem_(item);
             NSApp().setServicesMenu_(menu);
@@ -695,7 +695,7 @@ impl Window {
                 sel!(terminate:),
                 NSString::alloc(nil).init_str("q"));
             let item = NSMenuItem::alloc(nil).init();
-            item.setTitle_(application_menu_name);
+            NSWindow::setTitle_(item, application_menu_name);
             item.setSubmenu_(application_menu);
             main_menu.addItem_(item);
 
@@ -707,7 +707,7 @@ impl Window {
                 NSString::alloc(nil).init_str("f"));
             item.setKeyEquivalentModifierMask_(NSCommandKeyMask | NSControlKeyMask);
             let item = NSMenuItem::alloc(nil).init();
-            item.setTitle_(view_string);
+            NSWindow::setTitle_(item, view_string);
             item.setSubmenu_(menu);
             main_menu.addItem_(item);
 
@@ -722,7 +722,7 @@ impl Window {
                 sel!(performZoom:),
                 empty_string);
             let item = NSMenuItem::alloc(nil).init();
-            item.setTitle_(window_string);
+            NSWindow::setTitle_(item, window_string);
             item.setSubmenu_(menu);
             main_menu.addItem_(item);
 
@@ -734,7 +734,7 @@ impl Window {
     pub fn set_title(&self, title: &str) {
         unsafe {
             let title = IdRef::new(NSString::alloc(nil).init_str(title));
-            self.window.setTitle_(*title);
+            NSWindow::setTitle_(*self.window, *title);
         }
     }
 
