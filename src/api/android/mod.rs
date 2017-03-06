@@ -5,11 +5,13 @@ extern crate android_glue;
 use libc;
 use std::ffi::{CString};
 use std::sync::mpsc::{Receiver, channel};
+use std::{thread, time};
 use {CreationError, Event, MouseCursor};
 use CreationError::OsError;
 use events::ElementState::{Pressed, Released};
 use events::{Touch, TouchPhase};
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 
 use Api;
@@ -29,6 +31,7 @@ use api::egl::Context as EglContext;
 pub struct Window {
     context: EglContext,
     event_rx: Receiver<android_glue::Event>,
+    stopped: Cell<bool>
 }
 
 #[derive(Clone)]
@@ -90,6 +93,32 @@ impl<'a> Iterator for PollEventsIterator<'a> {
                     location: (motion.x as f64, motion.y as f64),
                     id: motion.pointer_id as u64,
                 }))
+            },
+            Ok(android_glue::Event::Wake) => {
+                if self.window.is_stopped() {
+                    // Never awake when the activity is stopped
+                    // This avoids "call to OpenGL ES API with no current context" crashes
+                    return None;
+                }
+                Some(Event::Awakened)
+            },
+            Ok(android_glue::Event::InitWindow) => {
+                // onsurfaceCreated equivalent
+                self.window.on_surface_created();
+                None
+            },
+            Ok(android_glue::Event::TermWindow) => {
+                // onSurfaceDestroyed equivalent
+                self.window.on_surface_destroyed();
+                None
+            },
+            Ok(android_glue::Event::WindowResized) |
+            Ok(android_glue::Event::ConfigChanged) => {
+                self.window.get_inner_size().map(|s| Event::Resized(s.0, s.1))
+            },
+            Ok(android_glue::Event::WindowRedrawNeeded) => {
+                /// The activity needs to be redrawn.
+                Some(Event::Refresh)
             }
             _ => {
                 None
@@ -148,7 +177,39 @@ impl Window {
         Ok(Window {
             context: context,
             event_rx: rx,
+            stopped: Cell::new(false)
         })
+    }
+
+    // Android has started the activity or sent it to foreground.
+    // Restore the EGL surface and animation loop.
+    pub fn on_surface_created(&self) {
+        if self.stopped.get() {
+           self.stopped.set(false);
+           unsafe {
+               let native_window = android_glue::get_native_window();
+               self.context.on_surface_created(native_window as *const _);
+           }
+
+           // We stopped the renderloop when on_surface_destroyed was called.
+           // We need to wakeup the event loop again.
+           android_glue::wake_event_loop();
+        }
+    }
+
+    // Android has stopped the activity or sent it to background.
+    // Release the EGL surface and stop the animation loop.
+    pub fn on_surface_destroyed(&self) {
+        if !self.stopped.get() {
+            self.stopped.set(true);
+            unsafe {
+                self.context.on_surface_destroyed();
+            }
+        }
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.stopped.get()
     }
 
     #[inline]
@@ -264,11 +325,17 @@ unsafe impl Sync for Window {}
 impl GlContext for Window {
     #[inline]
     unsafe fn make_current(&self) -> Result<(), ContextError> {
-        self.context.make_current()
+        if !self.stopped.get() {
+            return self.context.make_current();
+        }
+        Err(ContextError::ContextLost)
     }
 
     #[inline]
     fn is_current(&self) -> bool {
+        if self.stopped.get() {
+            return false;
+        }
         self.context.is_current()
     }
 
@@ -279,7 +346,10 @@ impl GlContext for Window {
 
     #[inline]
     fn swap_buffers(&self) -> Result<(), ContextError> {
-        self.context.swap_buffers()
+        if !self.stopped.get() {
+            return self.context.swap_buffers();
+        }
+        Err(ContextError::ContextLost)
     }
 
     #[inline]
@@ -299,7 +369,7 @@ pub struct WindowProxy;
 impl WindowProxy {
     #[inline]
     pub fn wakeup_event_loop(&self) {
-        unimplemented!()
+        android_glue::wake_event_loop();
     }
 }
 
