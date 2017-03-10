@@ -45,14 +45,15 @@ fn main() {
 
     unsafe { window.make_current() };
 
-    unsafe {
-        gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
+    let gl_ = match api_type {
+        gl::GlType::Gl => unsafe { gl::GlFns::load_with(|s| Self::get_proc_address(s) as *const _) },
+        gl::GlType::Gles => unsafe { gl::GlesFns::load_with(|s| Self::get_proc_address(s) as *const _) },
+    };
 
-        gl::ClearColor(0.0, 1.0, 0.0, 1.0);
-    }
+    gl_.clear_color(0.0, 1.0, 0.0, 1.0);
 
     for event in window.wait_events() {
-        unsafe { gl::Clear(gl::COLOR_BUFFER_BIT) };
+        gl_.clear(gl::COLOR_BUFFER_BIT);
         window.swap_buffers();
 
         match event {
