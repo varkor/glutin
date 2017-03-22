@@ -310,6 +310,9 @@ impl GlContext for Context {
 
     #[inline]
     fn swap_buffers(&self) -> Result<(), ContextError> {
+        if self.surface.get() == ffi::egl::NO_SURFACE {
+            return Err(ContextError::ContextLost);
+        }
         let ret = unsafe {
             self.egl.SwapBuffers(self.display, self.surface.get())
         };
@@ -317,6 +320,12 @@ impl GlContext for Context {
         if ret == 0 {
             match unsafe { self.egl.GetError() } as u32 {
                 ffi::egl::CONTEXT_LOST => return Err(ContextError::ContextLost),
+                // 'on_surface_destroyed' Android event can arrive with some delay because multithreading communication.
+                // Because of that, swap_buffers can be called before processing 'on_surface_destroyed' event, with the
+                // native window surface already destroyed. EGL generates a BAD_SURFACE error in this situation.
+                // We treat it as CONTEXT_LOST error to avoid a panic in servo.
+                // The surface will be restored when the app comes to foreground.
+                #[cfg(target_os = "android")] ffi::egl::BAD_SURFACE => return Err(ContextError::ContextLost),
                 err => panic!("eglSwapBuffers failed (eglGetError returned 0x{:x})", err)
             }
 
