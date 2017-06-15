@@ -464,14 +464,14 @@ impl Window {
                 // Fullscreen, transparent, or opaque window without titlebar.
                 //
                 // Note that transparent windows never have decorations.
-                NSBorderlessWindowMask as NSUInteger |
-                NSResizableWindowMask as NSUInteger
+                NSBorderlessWindowMask |
+                NSResizableWindowMask
             } else {
                 // Classic opaque window with titlebar.
-                NSClosableWindowMask as NSUInteger |
-                NSMiniaturizableWindowMask as NSUInteger |
-                NSResizableWindowMask as NSUInteger |
-                NSTitledWindowMask as NSUInteger
+                NSClosableWindowMask |
+                NSMiniaturizableWindowMask |
+                NSResizableWindowMask |
+                NSTitledWindowMask
             };
 
             let window_class = match Class::get("GlutinWindow") {
@@ -964,7 +964,7 @@ impl GlContext for Window {
 
     #[inline]
     fn swap_buffers(&self) -> Result<(), ContextError> {
-        unsafe { 
+        unsafe {
             let pool = NSAutoreleasePool::new(nil);
             self.context.flushBuffer();
             let _: () = msg_send![pool, release];
