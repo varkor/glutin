@@ -1,6 +1,6 @@
 [package]
 name = "servo-glutin"
-version = "0.11.0"
+version = "0.11.1"
 authors = ["The glutin contributors, Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform OpenGL context provider."
 keywords = ["windowing", "opengl"]
@@ -49,4 +49,4 @@ dwmapi-sys = "0.1"
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os="dragonfly", target_os="openbsd"))'.dependencies]
 osmesa-sys = "0.1.0"
 x11-dl = "2.4"
-image = { version = "0.12", optional = true }
+image = { version = "0.14", optional = true }
