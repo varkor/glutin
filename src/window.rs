@@ -15,7 +15,6 @@ use PixelFormat;
 use Robustness;
 use Window;
 use WindowID;
-use WindowAttributes;
 use WindowBuilder;
 use native_monitor::NativeMonitorId;
 

@@ -23,9 +23,11 @@
 //!
 //! By default only `window` is enabled.
 
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "dragonfly", target_os = "openbsd", target_os = "windows"))]
 #[macro_use]
 extern crate lazy_static;
 
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "dragonfly", target_os = "openbsd"))]
 #[macro_use]
 extern crate shared_library;
 
