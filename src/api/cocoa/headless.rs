@@ -21,11 +21,12 @@ pub struct HeadlessContext {
 }
 
 impl HeadlessContext {
-    pub fn new((width, height): (u32, u32), pf_reqs: &PixelFormatRequirements,
-               opengl: &GlAttributes<&HeadlessContext>,
-               _: &PlatformSpecificHeadlessBuilderAttributes)
-               -> Result<HeadlessContext, CreationError>
-    {
+    pub fn new(
+        _: (u32, u32),
+        pf_reqs: &PixelFormatRequirements,
+        opengl: &GlAttributes<&HeadlessContext>,
+        _: &PlatformSpecificHeadlessBuilderAttributes,
+    ) -> Result<HeadlessContext, CreationError> {
         let context = unsafe {
 
             let attributes = try!(helpers::build_nsattributes(pf_reqs, opengl));
