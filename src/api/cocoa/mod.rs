@@ -17,7 +17,7 @@ use os::macos::ActivationPolicy;
 use objc::runtime::{Class, Object, Sel, BOOL, YES, NO};
 use objc::declare::ClassDecl;
 
-use cgl::{CGLEnable, kCGLCECrashOnRemovedFunctions, CGLSetParameter, kCGLCPSurfaceOpacity};
+use cgl::{CGLEnable, kCGLCECrashOnRemovedFunctions};
 
 use cocoa::base::{id, nil};
 use cocoa::foundation::{NSAutoreleasePool, NSArray, NSDate, NSDefaultRunLoopMode, NSPoint, NSRect};
