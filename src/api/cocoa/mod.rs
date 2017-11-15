@@ -327,12 +327,14 @@ impl Window {
             _ => ()
         }
 
-        let app = match Window::create_app(pl_attribs.activation_policy,
-                                           pl_attribs.app_name.as_ref().map(|name| &**name),
-                                           win_attribs.icon.clone()) {
-            Some(app) => app,
-            None      => { return Err(OsError(format!("Couldn't create NSApplication"))); },
-        };
+        let app = Window::create_app(
+            pl_attribs.activation_policy,
+            pl_attribs.app_name.as_ref().map(|name| &**name),
+            win_attribs.icon.clone(),
+        );
+        if app.is_none() {
+            return Err(OsError(format!("Couldn't create NSApplication")));
+        }
 
         let window = match Window::create_window(win_attribs)
         {
