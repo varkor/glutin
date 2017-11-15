@@ -864,7 +864,7 @@ impl Window {
             MouseCursor::EwResize | MouseCursor::ColResize => "resizeLeftRightCursor",
             MouseCursor::NsResize | MouseCursor::RowResize => "resizeUpDownCursor",
 
-            /// TODO: Find appropriate OSX cursors
+            // TODO: Find appropriate OSX cursors
             MouseCursor::NeResize | MouseCursor::NwResize |
             MouseCursor::SeResize | MouseCursor::SwResize |
             MouseCursor::NwseResize | MouseCursor::NeswResize |
