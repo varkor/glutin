@@ -260,7 +260,7 @@ impl<'a> Iterator for PollEventsIterator<'a> {
             let pool = NSAutoreleasePool::new(nil);
 
             let nsevent = appkit::NSApp().nextEventMatchingMask_untilDate_inMode_dequeue_(
-                appkit::NSAnyEventMask.bits() | appkit::NSEventMaskPressure.bits(),
+                NSEventMask::NSAnyEventMask.bits() | NSEventMask::NSEventMaskPressure.bits(),
                 NSDate::distantPast(nil),
                 NSDefaultRunLoopMode,
                 YES);
@@ -289,7 +289,7 @@ impl<'a> Iterator for WaitEventsIterator<'a> {
             let pool = NSAutoreleasePool::new(nil);
 
             let nsevent = appkit::NSApp().nextEventMatchingMask_untilDate_inMode_dequeue_(
-                appkit::NSAnyEventMask.bits() | appkit::NSEventMaskPressure.bits(),
+                NSEventMask::NSAnyEventMask.bits() | NSEventMask::NSEventMaskPressure.bits(),
                 NSDate::distantFuture(nil),
                 NSDefaultRunLoopMode,
                 YES);
@@ -466,14 +466,14 @@ impl Window {
                 // Fullscreen, transparent, or opaque window without titlebar.
                 //
                 // Note that transparent windows never have decorations.
-                NSBorderlessWindowMask |
-                NSResizableWindowMask
+                NSWindowStyleMask::NSBorderlessWindowMask |
+                NSWindowStyleMask::NSResizableWindowMask
             } else {
                 // Classic opaque window with titlebar.
-                NSClosableWindowMask |
-                NSMiniaturizableWindowMask |
-                NSResizableWindowMask |
-                NSTitledWindowMask
+                NSWindowStyleMask::NSClosableWindowMask |
+                NSWindowStyleMask::NSMiniaturizableWindowMask |
+                NSWindowStyleMask::NSResizableWindowMask |
+                NSWindowStyleMask::NSTitledWindowMask
             };
 
             let window_class = match Class::get("GlutinWindow") {
@@ -685,7 +685,9 @@ impl Window {
                 NSString::alloc(nil).init_str("Hide Others"),
                 sel!(hideOtherApplications:),
                 NSString::alloc(nil).init_str("h"));
-            item.setKeyEquivalentModifierMask_(NSCommandKeyMask | NSAlternateKeyMask);
+            item.setKeyEquivalentModifierMask_(
+                NSEventModifierFlags::NSCommandKeyMask | NSEventModifierFlags::NSAlternateKeyMask,
+            );
             application_menu.addItemWithTitle_action_keyEquivalent(
                 NSString::alloc(nil).init_str("Show All"),
                 sel!(unhideAllApplications:),
@@ -707,7 +709,9 @@ impl Window {
                 NSString::alloc(nil).init_str("Enter Full Screen"),
                 sel!(toggleFullScreen:),
                 NSString::alloc(nil).init_str("f"));
-            item.setKeyEquivalentModifierMask_(NSCommandKeyMask | NSControlKeyMask);
+            item.setKeyEquivalentModifierMask_(
+                NSEventModifierFlags::NSCommandKeyMask | NSEventModifierFlags::NSControlKeyMask,
+            );
             let item = NSMenuItem::alloc(nil).init();
             NSWindow::setTitle_(item, view_string);
             item.setSubmenu_(menu);
@@ -892,7 +896,7 @@ impl Window {
         match state {
             CursorState::Normal => {
                 let _: () = unsafe { msg_send![cls, unhide] };
-                let _: i32 = unsafe { CGAssociateMouseAndMouseCursorPosition(true) };
+                let _: i32 = unsafe { CGAssociateMouseAndMouseCursorPosition(true as u32) };
                 Ok(())
             },
             CursorState::Hide => {
@@ -900,7 +904,7 @@ impl Window {
                 Ok(())
             },
             CursorState::Grab => {
-                let _: i32 = unsafe { CGAssociateMouseAndMouseCursorPosition(false) };
+                let _: i32 = unsafe { CGAssociateMouseAndMouseCursorPosition(false as u32) };
                 Ok(())
             }
         }
@@ -924,7 +928,7 @@ impl Window {
                 x: cursor_x as appkit::CGFloat,
                 y: cursor_y as appkit::CGFloat,
             });
-            let _ = CGAssociateMouseAndMouseCursorPosition(true);
+            let _ = CGAssociateMouseAndMouseCursorPosition(true as u32);
         }
 
         Ok(())
@@ -1099,22 +1103,22 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
         },
         appkit::NSFlagsChanged => {
             let mut events = VecDeque::new();
-            let shift_modifier = Window::modifier_event(nsevent, appkit::NSShiftKeyMask, events::VirtualKeyCode::LShift, SHIFT_PRESSED);
+            let shift_modifier = Window::modifier_event(nsevent, NSEventModifierFlags::NSShiftKeyMask, events::VirtualKeyCode::LShift, SHIFT_PRESSED);
             if shift_modifier.is_some() {
                 SHIFT_PRESSED = !SHIFT_PRESSED;
                 events.push_back(shift_modifier.unwrap());
             }
-            let ctrl_modifier = Window::modifier_event(nsevent, appkit::NSControlKeyMask, events::VirtualKeyCode::LControl, CTRL_PRESSED);
+            let ctrl_modifier = Window::modifier_event(nsevent, NSEventModifierFlags::NSControlKeyMask, events::VirtualKeyCode::LControl, CTRL_PRESSED);
             if ctrl_modifier.is_some() {
                 CTRL_PRESSED = !CTRL_PRESSED;
                 events.push_back(ctrl_modifier.unwrap());
             }
-            let win_modifier = Window::modifier_event(nsevent, appkit::NSCommandKeyMask, events::VirtualKeyCode::LWin, WIN_PRESSED);
+            let win_modifier = Window::modifier_event(nsevent, NSEventModifierFlags::NSCommandKeyMask, events::VirtualKeyCode::LWin, WIN_PRESSED);
             if win_modifier.is_some() {
                 WIN_PRESSED = !WIN_PRESSED;
                 events.push_back(win_modifier.unwrap());
             }
-            let alt_modifier = Window::modifier_event(nsevent, appkit::NSAlternateKeyMask, events::VirtualKeyCode::LAlt, ALT_PRESSED);
+            let alt_modifier = Window::modifier_event(nsevent, NSEventModifierFlags::NSAlternateKeyMask, events::VirtualKeyCode::LAlt, ALT_PRESSED);
             if alt_modifier.is_some() {
                 ALT_PRESSED = !ALT_PRESSED;
                 events.push_back(alt_modifier.unwrap());
@@ -1134,8 +1138,8 @@ unsafe fn NSEventToEvent(window: &Window, nsevent: id) -> Option<Event> {
                           scale_factor * nsevent.scrollingDeltaY() as f32)
             };
             let phase = match nsevent.phase() {
-                appkit::NSEventPhaseMayBegin | appkit::NSEventPhaseBegan => TouchPhase::Started,
-                appkit::NSEventPhaseEnded => TouchPhase::Ended,
+                NSEventPhase::NSEventPhaseMayBegin | NSEventPhase::NSEventPhaseBegan => TouchPhase::Started,
+                NSEventPhase::NSEventPhaseEnded => TouchPhase::Ended,
                 _ => TouchPhase::Moved,
             };
             let mouse_position = match phase {
