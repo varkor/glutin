@@ -1,6 +1,6 @@
 [package]
 name = "servo-glutin"
-version = "0.12.3"
+version = "0.13.0"
 authors = ["The glutin contributors, Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform OpenGL context provider."
 keywords = ["windowing", "opengl"]
@@ -32,9 +32,9 @@ objc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"
 cgl = "0.2"
-cocoa = "0.10"
+cocoa = "0.13"
 core-foundation = "0.4"
-core-graphics = "0.9"
+core-graphics = "0.12.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = "0.2"
