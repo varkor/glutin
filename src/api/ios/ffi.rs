@@ -90,7 +90,7 @@ extern {
     pub fn dlsym(handle: *mut c_void, symbol: *const libc::c_char) -> *mut c_void;
 }
 
-pub trait NSString {
+pub trait NSString: Sized {
     unsafe fn alloc(_: Self) -> id {
         msg_send![class("NSString"), alloc]
     }
