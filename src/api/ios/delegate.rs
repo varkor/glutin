@@ -139,7 +139,7 @@ pub fn create_delegate_class() {
     }
 
     let superclass = Class::get("UIResponder").unwrap();
-    let mut decl = ClassDecl::new(superclass, "AppDelegate").unwrap();
+    let mut decl = ClassDecl::new("AppDelegate", superclass).unwrap();
 
     unsafe {
         decl.add_method(sel!(application:didFinishLaunchingWithOptions:),
@@ -187,7 +187,7 @@ pub fn create_delegate_class() {
 
 pub fn create_view_class() {
     let superclass = Class::get("UIViewController").unwrap();
-    let decl = ClassDecl::new(superclass, "MainViewController").unwrap();
+    let decl = ClassDecl::new("MainViewController",superclass).unwrap();
 
     decl.register();
 
@@ -212,7 +212,7 @@ pub fn create_view_class() {
 
 
     let superclass = Class::get("UIView").unwrap();
-    let mut decl = ClassDecl::new(superclass, "MainView").unwrap();
+    let mut decl = ClassDecl::new("MainView", superclass).unwrap();
 
     unsafe {
         decl.add_method(sel!(initForGl:),
