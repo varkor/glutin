@@ -1,5 +1,5 @@
-use libc;
 use std::mem;
+use std::os::raw;
 use super::DelegateState;
 use Event;
 use events::{ Touch, TouchPhase };
@@ -52,8 +52,7 @@ pub fn create_delegate_class() {
 
             let state = Box::new(DelegateState::new(window, view_controller, view, size, scale as f32));
             let state_ptr: *mut DelegateState = mem::transmute(state);
-            this.set_ivar("glutinState", state_ptr as *mut libc::c_void);
-
+            this.set_ivar("glutinState", state_ptr as *mut raw::c_void);
 
             let _: () = msg_send![this, performSelector:sel!(postLaunch:) withObject:nil afterDelay:0.0];
         }
@@ -66,7 +65,7 @@ pub fn create_delegate_class() {
 
     extern fn did_become_active(this: &Object, _: Sel, _: id) {
         unsafe {
-            let state: *mut libc::c_void = *this.get_ivar("glutinState");
+            let state: *mut raw::c_void = *this.get_ivar("glutinState");
             let state = &mut *(state as *mut DelegateState);
             state.events_queue.push_back(Event::Focused(true));
         }
@@ -74,7 +73,7 @@ pub fn create_delegate_class() {
 
     extern fn will_resign_active(this: &Object, _: Sel, _: id) {
         unsafe {
-            let state: *mut libc::c_void = *this.get_ivar("glutinState");
+            let state: *mut raw::c_void = *this.get_ivar("glutinState");
             let state = &mut *(state as *mut DelegateState);
             state.events_queue.push_back(Event::Focused(false));
         }
@@ -82,7 +81,7 @@ pub fn create_delegate_class() {
 
     extern fn will_enter_foreground(this: &Object, _: Sel, _: id) {
         unsafe {
-            let state: *mut libc::c_void = *this.get_ivar("glutinState");
+            let state: *mut raw::c_void = *this.get_ivar("glutinState");
             let state = &mut *(state as *mut DelegateState);
             state.events_queue.push_back(Event::Suspended(false));
         }
@@ -90,7 +89,7 @@ pub fn create_delegate_class() {
 
     extern fn did_enter_background(this: &Object, _: Sel, _: id) {
         unsafe {
-            let state: *mut libc::c_void = *this.get_ivar("glutinState");
+            let state: *mut raw::c_void = *this.get_ivar("glutinState");
             let state = &mut *(state as *mut DelegateState);
             state.events_queue.push_back(Event::Suspended(true));
         }
@@ -98,7 +97,7 @@ pub fn create_delegate_class() {
 
     extern fn will_terminate(this: &Object, _: Sel, _: id) {
         unsafe {
-            let state: *mut libc::c_void = *this.get_ivar("glutinState");
+            let state: *mut raw::c_void = *this.get_ivar("glutinState");
             let state = &mut *(state as *mut DelegateState);
             // push event to the front to garantee that we'll process it
             // immidiatly after jump
@@ -109,7 +108,7 @@ pub fn create_delegate_class() {
 
     extern fn handle_touches(this: &Object, _: Sel, touches: id, _:id) {
         unsafe {
-            let state: *mut libc::c_void = *this.get_ivar("glutinState");
+            let state: *mut raw::c_void = *this.get_ivar("glutinState");
             let state = &mut *(state as *mut DelegateState);
 
             let touches_enum: id = msg_send![touches, objectEnumerator];
@@ -179,7 +178,7 @@ pub fn create_delegate_class() {
         decl.add_method(sel!(postLaunch:),
             post_launch as extern fn(&Object, Sel, id));
 
-        decl.add_ivar::<*mut libc::c_void>("glutinState");
+        decl.add_ivar::<*mut raw::c_void>("glutinState");;
 
         decl.register();
     }
@@ -192,7 +191,7 @@ pub fn create_view_class() {
 
     decl.register();
 
-    extern fn init_for_gl(this: &Object, _: Sel, frame: *const libc::c_void) -> id {
+    extern fn init_for_gl(this: &Object, _: Sel, frame: *const raw::c_void) -> id {
         unsafe {
             let bounds: *const CGRect = mem::transmute(frame);
             let view: id = msg_send![this, initWithFrame:(*bounds).clone()];
@@ -217,7 +216,7 @@ pub fn create_view_class() {
 
     unsafe {
         decl.add_method(sel!(initForGl:),
-            init_for_gl as extern fn(&Object, Sel, *const libc::c_void) -> id);
+            init_for_gl as extern fn(&Object, Sel, *const raw::c_void) -> id);
 
         decl.add_class_method(sel!(layerClass),
             layer_class as extern fn(&Class, Sel) -> *const Class);

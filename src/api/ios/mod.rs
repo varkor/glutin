@@ -66,6 +66,7 @@ use std::collections::VecDeque;
 use std::ptr;
 use std::io;
 use std::mem;
+use std::os::raw;
 use std::ffi::CString;
 
 use libc;
@@ -189,7 +190,7 @@ impl Window {
             if setjmp(mem::transmute(&mut jmpbuf)) != 0 {
                 let app: id = msg_send![Class::get("UIApplication").unwrap(), sharedApplication];
                 let delegate: id = msg_send![app, delegate];
-                let state: *mut libc::c_void = *(&*delegate).get_ivar("glutinState");
+                let state: *mut raw::c_void = *(&*delegate).get_ivar("glutinState");
                 let state = state as *mut DelegateState;
 
                 let context = Window::create_context();
@@ -328,12 +329,12 @@ impl Window {
     }
 
     #[inline]
-    pub fn platform_display(&self) -> *mut libc::c_void {
+    pub fn platform_display(&self) -> *mut raw::c_void {
         unimplemented!();
     }
 
     #[inline]
-    pub fn platform_window(&self) -> *mut libc::c_void {
+    pub fn platform_window(&self) -> *mut raw::c_void {
         unimplemented!()
     }
 
