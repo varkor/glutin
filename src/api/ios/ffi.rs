@@ -7,7 +7,6 @@ use std::os::raw::c_void;
 #[allow(non_camel_case_types)]
 pub type id = *mut Object;
 
-#[allow(non_camel_case_types)]
 #[allow(non_upper_case_globals)]
 pub const nil: id = 0 as id;
 

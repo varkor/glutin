@@ -75,7 +75,6 @@ use objc::runtime::{Class, BOOL, YES, NO };
 use native_monitor::NativeMonitorId;
 use { Api, PixelFormat, CreationError, GlContext, CursorState, MouseCursor, Event };
 use { PixelFormatRequirements, GlAttributes, WindowAttributes, ContextError };
-use CreationError::OsError;
 
 mod delegate;
 use self::delegate::{ create_delegate_class, create_view_class };
