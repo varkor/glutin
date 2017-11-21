@@ -35,3 +35,5 @@ pub type EGLNativeWindowType = *const libc::c_void;
 pub type EGLNativeWindowType = *const libc::c_void;
 #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "openbsd"))]
 pub type EGLNativeWindowType = *const libc::c_void;
+#[cfg(target_os = "ios")]
+pub type EGLNativeWindowType = *const libc::c_void;

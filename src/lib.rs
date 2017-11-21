@@ -69,7 +69,7 @@ pub use window::{AvailableMonitorsIter, MonitorId, get_available_monitors, get_p
 pub use native_monitor::NativeMonitorId;
 
 use std::io;
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"),not(target_os = "ios")))]
 use std::cmp::Ordering;
 use std::path::PathBuf;
 
