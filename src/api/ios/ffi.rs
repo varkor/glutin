@@ -2,15 +2,15 @@ use std::ffi::CString;
 
 use libc;
 use objc::runtime::{ Object, Class };
+use std::os::raw::c_void;
 
 #[allow(non_camel_case_types)]
 pub type id = *mut Object;
 
-#[allow(non_camel_case_types)]
 #[allow(non_upper_case_globals)]
 pub const nil: id = 0 as id;
 
-pub type CFStringRef = *const libc::c_void;
+pub type CFStringRef = *const c_void;
 pub type CFTimeInterval = f64;
 pub type Boolean = u32;
 
@@ -77,19 +77,19 @@ extern {
 }
 
 extern {
-    pub fn setjmp(env: *mut libc::c_void) -> libc::c_int;
-    pub fn longjmp(env: *mut libc::c_void, val: libc::c_int);
+    pub fn setjmp(env: *mut c_void) -> libc::c_int;
+    pub fn longjmp(env: *mut c_void, val: libc::c_int);
 }
 
 pub const RTLD_LAZY: libc::c_int = 0x001;
 pub const RTLD_GLOBAL: libc::c_int = 0x100;
 
 extern {
-    pub fn dlopen(filename: *const libc::c_char, flag: libc::c_int) -> *mut libc::c_void;
-    pub fn dlsym(handle: *mut libc::c_void, symbol: *const libc::c_char) -> *mut libc::c_void;
+    pub fn dlopen(filename: *const libc::c_char, flag: libc::c_int) -> *mut c_void;
+    pub fn dlsym(handle: *mut c_void, symbol: *const libc::c_char) -> *mut c_void;
 }
 
-pub trait NSString {
+pub trait NSString: Sized {
     unsafe fn alloc(_: Self) -> id {
         msg_send![class("NSString"), alloc]
     }
