@@ -1,13 +1,13 @@
 [package]
 name = "servo-glutin"
-version = "0.13.1"
+version = "0.13.2"
 authors = ["The glutin contributors, Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform OpenGL context provider."
 keywords = ["windowing", "opengl"]
 license = "Apache-2.0"
 readme = "README.md"
-repository = "https://github.com/tomaka/glutin"
-documentation = "https://docs.rs/glutin"
+repository = "https://github.com/servo/glutin"
+documentation = "https://docs.rs/servo-glutin"
 build = "build.rs"
 
 [lib]
