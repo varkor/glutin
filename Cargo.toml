@@ -1,6 +1,6 @@
 [package]
 name = "servo-glutin"
-version = "0.13.2"
+version = "0.13.3"
 authors = ["The glutin contributors, Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform OpenGL context provider."
 keywords = ["windowing", "opengl"]
@@ -51,4 +51,4 @@ shared_library = "0.1.0"
 x11-dl = "2.4"
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os="dragonfly", target_os="openbsd", target_os="windows"))'.dependencies]
-lazy_static = "0.2"
+lazy_static = "1"
