@@ -24,10 +24,20 @@ use std::ffi::{OsStr};
 use std::os::windows::ffi::OsStrExt;
 use std::sync::mpsc::channel;
 
-use winapi;
-use kernel32;
-use dwmapi;
-use user32;
+use winapi::shared::minwindef::{UINT, DWORD, WORD};
+use winapi::shared::windef::{HGLRC, RECT};
+use winapi::um::dwmapi::{DWM_BLURBEHIND, DwmEnableBlurBehindWindow};
+use winapi::um::wingdi::{DM_BITSPERPEL, DM_PELSWIDTH, DM_PELSHEIGHT, DEVMODEW};
+use winapi::um::winnt::{LPCWSTR, LONG};
+use winapi::um::winuser::{CW_USEDEFAULT, IDC_ARROW, WS_CLIPCHILDREN, WS_CLIPSIBLINGS};
+use winapi::um::winuser::{WS_EX_APPWINDOW, WS_POPUP, WS_EX_WINDOWEDGE};
+use winapi::um::winuser::{WS_EX_ACCEPTFILES, WS_VISIBLE, WS_OVERLAPPEDWINDOW};
+use winapi::um::winuser::{CDS_FULLSCREEN, DISP_CHANGE_SUCCESSFUL};
+use winapi::um::winuser::{CS_OWNDC, CS_HREDRAW, CS_VREDRAW, WNDCLASSEXW};
+use winapi::um::winuser::{ChangeDisplaySettingsExW, RegisterClassExW, GetMessageW};
+use winapi::um::winuser::{TranslateMessage, DispatchMessageW, SetForegroundWindow};
+use winapi::um::winuser::{AdjustWindowRectEx, GetDC, CreateWindowExW};
+use winapi::um::libloaderapi::GetModuleHandleW;
 
 use api::wgl::Context as WglContext;
 use api::egl;
@@ -37,7 +47,7 @@ use api::egl::ffi::egl::Egl;
 #[derive(Clone)]
 pub enum RawContext {
     Egl(egl::ffi::egl::types::EGLContext),
-    Wgl(winapi::HGLRC),
+    Wgl(HGLRC),
 }
 
 unsafe impl Send for RawContext {}
@@ -77,12 +87,12 @@ pub fn new_window(window: &WindowAttributes, pf_reqs: &PixelFormatRequirements,
             loop {
                 let mut msg = mem::uninitialized();
 
-                if user32::GetMessageW(&mut msg, ptr::null_mut(), 0, 0) == 0 {
+                if GetMessageW(&mut msg, ptr::null_mut(), 0, 0) == 0 {
                     break;
                 }
 
-                user32::TranslateMessage(&msg);
-                user32::DispatchMessageW(&msg);   // calls `callback` (see the callback module)
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);   // calls `callback` (see the callback module)
             }
         }
     });
@@ -105,9 +115,9 @@ unsafe fn init(title: Vec<u16>, window: &WindowAttributes, pf_reqs: &PixelFormat
     let class_name = register_window_class();
 
     // building a RECT object with coordinates
-    let mut rect = winapi::RECT {
-        left: 0, right: window.dimensions.unwrap_or((1024, 768)).0 as winapi::LONG,
-        top: 0, bottom: window.dimensions.unwrap_or((1024, 768)).1 as winapi::LONG,
+    let mut rect = RECT {
+        left: 0, right: window.dimensions.unwrap_or((1024, 768)).0 as LONG,
+        top: 0, bottom: window.dimensions.unwrap_or((1024, 768)).1 as LONG,
     };
 
     // switching to fullscreen if necessary
@@ -120,14 +130,14 @@ unsafe fn init(title: Vec<u16>, window: &WindowAttributes, pf_reqs: &PixelFormat
 
     // computing the style and extended style of the window
     let (ex_style, style) = if window.monitor.is_some() || window.decorations == false {
-        (winapi::WS_EX_APPWINDOW, winapi::WS_POPUP | winapi::WS_CLIPSIBLINGS | winapi::WS_CLIPCHILDREN)
+        (WS_EX_APPWINDOW, WS_POPUP | WS_CLIPSIBLINGS | WS_CLIPCHILDREN)
     } else {
-        (winapi::WS_EX_APPWINDOW | winapi::WS_EX_WINDOWEDGE,
-            winapi::WS_OVERLAPPEDWINDOW | winapi::WS_CLIPSIBLINGS | winapi::WS_CLIPCHILDREN)
+        (WS_EX_APPWINDOW | WS_EX_WINDOWEDGE,
+            WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS | WS_CLIPCHILDREN)
     };
 
     // adjusting the window coordinates using the style
-    user32::AdjustWindowRectEx(&mut rect, style, 0, ex_style);
+    AdjustWindowRectEx(&mut rect, style, 0, ex_style);
 
     // creating the real window this time, by using the functions in `extra_functions`
     let real_window = {
@@ -146,16 +156,16 @@ unsafe fn init(title: Vec<u16>, window: &WindowAttributes, pf_reqs: &PixelFormat
         let style = if !window.visible {
             style
         } else {
-            style | winapi::WS_VISIBLE
+            style | WS_VISIBLE
         };
 
-        let handle = user32::CreateWindowExW(ex_style | winapi::WS_EX_ACCEPTFILES,
+        let handle = CreateWindowExW(ex_style | WS_EX_ACCEPTFILES,
             class_name.as_ptr(),
-            title.as_ptr() as winapi::LPCWSTR,
-            style | winapi::WS_CLIPSIBLINGS | winapi::WS_CLIPCHILDREN,
-            x.unwrap_or(winapi::CW_USEDEFAULT), y.unwrap_or(winapi::CW_USEDEFAULT),
-            width.unwrap_or(winapi::CW_USEDEFAULT), height.unwrap_or(winapi::CW_USEDEFAULT),
-            ptr::null_mut(), ptr::null_mut(), kernel32::GetModuleHandleW(ptr::null()),
+            title.as_ptr() as LPCWSTR,
+            style | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+            x.unwrap_or(CW_USEDEFAULT), y.unwrap_or(CW_USEDEFAULT),
+            width.unwrap_or(CW_USEDEFAULT), height.unwrap_or(CW_USEDEFAULT),
+            ptr::null_mut(), ptr::null_mut(), GetModuleHandleW(ptr::null()),
             ptr::null_mut());
 
         if handle.is_null() {
@@ -163,7 +173,7 @@ unsafe fn init(title: Vec<u16>, window: &WindowAttributes, pf_reqs: &PixelFormat
                                        format!("{}", io::Error::last_os_error()))));
         }
 
-        let hdc = user32::GetDC(handle);
+        let hdc = GetDC(handle);
         if hdc.is_null() {
             return Err(OsError(format!("GetDC function failed: {}",
                                        format!("{}", io::Error::last_os_error()))));
@@ -200,24 +210,24 @@ unsafe fn init(title: Vec<u16>, window: &WindowAttributes, pf_reqs: &PixelFormat
 
     // making the window transparent
     if window.transparent {
-        let bb = winapi::DWM_BLURBEHIND {
+        let bb = DWM_BLURBEHIND {
             dwFlags: 0x1, // FIXME: DWM_BB_ENABLE;
             fEnable: 1,
             hRgnBlur: ptr::null_mut(),
             fTransitionOnMaximized: 0,
         };
 
-        dwmapi::DwmEnableBlurBehindWindow(real_window.0, &bb);
+        DwmEnableBlurBehindWindow(real_window.0, &bb);
     }
 
     // calling SetForegroundWindow if fullscreen
     if window.monitor.is_some() {
-        user32::SetForegroundWindow(real_window.0);
+        SetForegroundWindow(real_window.0);
     }
 
     // Creating a mutex to track the current window state
     let window_state = Arc::new(Mutex::new(WindowState {
-        cursor: winapi::IDC_ARROW, // use arrow by default
+        cursor: IDC_ARROW, // use arrow by default
         cursor_state: CursorState::Normal,
         attributes: window.clone()
     }));
@@ -250,13 +260,13 @@ unsafe fn register_window_class() -> Vec<u16> {
     let class_name = OsStr::new("Window Class").encode_wide().chain(Some(0).into_iter())
                                                .collect::<Vec<_>>();
 
-    let class = winapi::WNDCLASSEXW {
-        cbSize: mem::size_of::<winapi::WNDCLASSEXW>() as winapi::UINT,
-        style: winapi::CS_HREDRAW | winapi::CS_VREDRAW | winapi::CS_OWNDC,
+    let class = WNDCLASSEXW {
+        cbSize: mem::size_of::<WNDCLASSEXW>() as UINT,
+        style: CS_HREDRAW | CS_VREDRAW | CS_OWNDC,
         lpfnWndProc: Some(callback::callback),
         cbClsExtra: 0,
         cbWndExtra: 0,
-        hInstance: kernel32::GetModuleHandleW(ptr::null()),
+        hInstance: GetModuleHandleW(ptr::null()),
         hIcon: ptr::null_mut(),
         hCursor: ptr::null_mut(),       // must be null in order for cursor state to work properly
         hbrBackground: ptr::null_mut(),
@@ -269,36 +279,36 @@ unsafe fn register_window_class() -> Vec<u16> {
     //  an error, and because errors here are detected during CreateWindowEx anyway.
     // Also since there is no weird element in the struct, there is no reason for this
     //  call to fail.
-    user32::RegisterClassExW(&class);
+    RegisterClassExW(&class);
 
     class_name
 }
 
-unsafe fn switch_to_fullscreen(rect: &mut winapi::RECT, monitor: &MonitorId)
+unsafe fn switch_to_fullscreen(rect: &mut RECT, monitor: &MonitorId)
                                -> Result<(), CreationError>
 {
     // adjusting the rect
     {
         let pos = monitor.get_position();
-        rect.left += pos.0 as winapi::LONG;
-        rect.right += pos.0 as winapi::LONG;
-        rect.top += pos.1 as winapi::LONG;
-        rect.bottom += pos.1 as winapi::LONG;
+        rect.left += pos.0 as LONG;
+        rect.right += pos.0 as LONG;
+        rect.top += pos.1 as LONG;
+        rect.bottom += pos.1 as LONG;
     }
 
     // changing device settings
-    let mut screen_settings: winapi::DEVMODEW = mem::zeroed();
-    screen_settings.dmSize = mem::size_of::<winapi::DEVMODEW>() as winapi::WORD;
-    screen_settings.dmPelsWidth = (rect.right - rect.left) as winapi::DWORD;
-    screen_settings.dmPelsHeight = (rect.bottom - rect.top) as winapi::DWORD;
+    let mut screen_settings: DEVMODEW = mem::zeroed();
+    screen_settings.dmSize = mem::size_of::<DEVMODEW>() as WORD;
+    screen_settings.dmPelsWidth = (rect.right - rect.left) as DWORD;
+    screen_settings.dmPelsHeight = (rect.bottom - rect.top) as DWORD;
     screen_settings.dmBitsPerPel = 32;      // TODO: ?
-    screen_settings.dmFields = winapi::DM_BITSPERPEL | winapi::DM_PELSWIDTH | winapi::DM_PELSHEIGHT;
+    screen_settings.dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT;
 
-    let result = user32::ChangeDisplaySettingsExW(monitor.get_adapter_name().as_ptr(),
+    let result = ChangeDisplaySettingsExW(monitor.get_adapter_name().as_ptr(),
                                                   &mut screen_settings, ptr::null_mut(),
-                                                  winapi::CDS_FULLSCREEN, ptr::null_mut());
+                                                  CDS_FULLSCREEN, ptr::null_mut());
 
-    if result != winapi::DISP_CHANGE_SUCCESSFUL {
+    if result != DISP_CHANGE_SUCCESSFUL {
         return Err(OsError(format!("ChangeDisplaySettings failed: {}", result)));
     }
 
