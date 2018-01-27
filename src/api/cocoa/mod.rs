@@ -28,7 +28,7 @@ use cocoa::appkit::NSEventSubtype::*;
 
 use core_foundation::base::TCFType;
 use core_foundation::string::CFString;
-use core_foundation::bundle::{CFBundle, CFBundleGetBundleWithIdentifier};
+use core_foundation::bundle::CFBundleGetBundleWithIdentifier;
 use core_foundation::bundle::{CFBundleGetFunctionPointerForName};
 
 use core_graphics::geometry::{CG_ZERO_POINT, CGRect, CGSize};
@@ -396,14 +396,6 @@ impl Window {
                 None
             } else {
                 app.setActivationPolicy_(activation_policy.into());
-
-                // Set `CFBundleName` appropriately.
-                if let Some(app_name) = app_name {
-                    let info_dictionary = CFBundle::main_bundle().info_dictionary();
-                    info_dictionary.set_value(
-                        NSString::alloc(nil).init_str("CFBundleName") as *const _,
-                        NSString::alloc(nil).init_str(app_name) as *const _);
-                }
 
                 if let Some(icon_path) = icon_path {
                     if let Some(icon_path) = icon_path.to_str() {
