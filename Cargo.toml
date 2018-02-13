@@ -1,6 +1,6 @@
 [package]
 name = "servo-glutin"
-version = "0.14.0"
+version = "0.14.1"
 authors = ["The glutin contributors, Pierre Krieger <pierre.krieger1708@gmail.com>"]
 description = "Cross-platform OpenGL context provider."
 keywords = ["windowing", "opengl"]
@@ -21,7 +21,7 @@ headless = []
 libc = "0.2"
 
 [build-dependencies]
-gl_generator = "0.8"
+gl_generator = "0.9"
 
 [target.'cfg(target_os = "android")'.dependencies.android_glue]
 version = "0.2"
