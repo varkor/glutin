@@ -19,7 +19,7 @@ use api::egl::Context as EglContext;
 
 use std::ffi::CString;
 use std::ops::{Deref, DerefMut};
-use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
+use kernel32;
 
 /// Stupid wrapper because `*const libc::c_void` doesn't implement `Sync`.
 struct EglWrapper(Egl);
@@ -36,14 +36,14 @@ lazy_static! {
         };
 
         for dll_name in &[b"libEGL.dll\0" as &[u8], ati_dll_name] {
-            let dll = unsafe { LoadLibraryA(dll_name.as_ptr() as *const _) };
+            let dll = unsafe { kernel32::LoadLibraryA(dll_name.as_ptr() as *const _) };
             if dll.is_null() {
                 continue;
             }
 
             let egl = Egl::load_with(|name| {
                 let name = CString::new(name).unwrap();
-                unsafe { GetProcAddress(dll, name.as_ptr()) as *const _ }
+                unsafe { kernel32::GetProcAddress(dll, name.as_ptr()) as *const _ }
             });
 
             return Some(EglWrapper(egl))

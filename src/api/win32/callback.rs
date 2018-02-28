@@ -12,18 +12,9 @@ use Event;
 use super::event;
 use super::WindowState;
 
-use winapi::shared::windef::{HWND, POINT};
-use winapi::um::winuser::{RID_INPUT, RIM_TYPEMOUSE, RAWINPUT, RAWINPUTHEADER};
-use winapi::um::winuser::{WM_GETMINMAXINFO, WM_DESTROY, WM_KEYDOWN, WM_KEYUP};
-use winapi::um::winuser::{WM_DROPFILES, WM_SIZE, WM_ERASEBKGND, WM_INPUT};
-use winapi::um::winuser::{WM_SYSKEYUP, WM_SYSKEYDOWN, WM_SYSCHAR, WM_MOUSEWHEEL};
-use winapi::um::winuser::{VK_F4, WHEEL_DELTA, SetCursor, LoadCursorW};
-use winapi::um::winuser::{PostQuitMessage, DefWindowProcW, GetRawInputData};
-use winapi::shared::windowsx::{GET_X_LPARAM, GET_Y_LPARAM};
-use winapi::shared::minwindef::{DWORD, HIWORD, LOWORD, MAX_PATH, UINT, LRESULT};
-use winapi::shared::minwindef::{LPARAM, WPARAM};
-use winapi::um::shellapi::{HDROP, DragFinish, DragQueryFileW};
-use winapi::ctypes::c_int;
+use user32;
+use shell32;
+use winapi;
 
 /// There's no parameters passed to the callback function, so it needs to get
 /// its context (the HWND, the Sender for events, etc.) stashed in
@@ -31,21 +22,21 @@ use winapi::ctypes::c_int;
 thread_local!(pub static CONTEXT_STASH: RefCell<Option<ThreadLocalData>> = RefCell::new(None));
 
 pub struct ThreadLocalData {
-    pub win: HWND,
+    pub win: winapi::HWND,
     pub sender: Sender<Event>,
     pub window_state: Arc<Mutex<WindowState>>
 }
 
 struct MinMaxInfo {
-    reserved: POINT, // Do not use/change
-    max_size: POINT,
-    max_position: POINT,
-    min_track: POINT,
-    max_track: POINT
+    reserved: winapi::POINT, // Do not use/change
+    max_size: winapi::POINT,
+    max_position: winapi::POINT,
+    min_track: winapi::POINT,
+    max_track: winapi::POINT
 }
 
 /// Checks that the window is the good one, and if so send the event to it.
-fn send_event(input_window: HWND, event: Event) {
+fn send_event(input_window: winapi::HWND, event: Event) {
     CONTEXT_STASH.with(|context_stash| {
         let context_stash = context_stash.borrow();
         let stored = match *context_stash {
@@ -67,12 +58,12 @@ fn send_event(input_window: HWND, event: Event) {
 ///
 /// Returning 0 tells the Win32 API that the message has been processed.
 // FIXME: detect WM_DWMCOMPOSITIONCHANGED and call DwmEnableBlurBehindWindow if necessary
-pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
-                                       wparam: WPARAM, lparam: LPARAM)
-                                       -> LRESULT
+pub unsafe extern "system" fn callback(window: winapi::HWND, msg: winapi::UINT,
+                                       wparam: winapi::WPARAM, lparam: winapi::LPARAM)
+                                       -> winapi::LRESULT
 {
     match msg {
-        WM_DESTROY => {
+        winapi::WM_DESTROY => {
             use events::Event::Closed;
 
             CONTEXT_STASH.with(|context_stash| {
@@ -85,7 +76,7 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
                 let &ThreadLocalData { ref win, .. } = stored;
 
                 if win == &window {
-                    PostQuitMessage(0);
+                    user32::PostQuitMessage(0);
                 }
             });
 
@@ -93,27 +84,27 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
             0
         },
 
-        WM_ERASEBKGND => {
+        winapi::WM_ERASEBKGND => {
             1
         },
 
-        WM_SIZE => {
+        winapi::WM_SIZE => {
             use events::Event::Resized;
-            let w = LOWORD(lparam as DWORD) as u32;
-            let h = HIWORD(lparam as DWORD) as u32;
+            let w = winapi::LOWORD(lparam as winapi::DWORD) as u32;
+            let h = winapi::HIWORD(lparam as winapi::DWORD) as u32;
             send_event(window, Resized(w, h));
             0
         },
 
-        WM_MOVE => {
+        winapi::WM_MOVE => {
             use events::Event::Moved;
-            let x = LOWORD(lparam as DWORD) as i32;
-            let y = HIWORD(lparam as DWORD) as i32;
+            let x = winapi::LOWORD(lparam as winapi::DWORD) as i32;
+            let y = winapi::HIWORD(lparam as winapi::DWORD) as i32;
             send_event(window, Moved(x, y));
             0
         },
 
-        WM_CHAR => {
+        winapi::WM_CHAR => {
             use std::mem;
             use events::Event::ReceivedCharacter;
             let chr: char = mem::transmute(wparam as u32);
@@ -125,40 +116,40 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
         // "ding" sounds. Alternatively could check for WM_SYSCOMMAND
         // with wparam being SC_KEYMENU, but this may prevent some
         // other unwanted default hotkeys as well.
-        WM_SYSCHAR => {
+        winapi::WM_SYSCHAR => {
             0
         }
 
-        WM_MOUSEMOVE => {
+        winapi::WM_MOUSEMOVE => {
             use events::Event::MouseMoved;
 
-            let x = GET_X_LPARAM(lparam) as i32;
-            let y = GET_Y_LPARAM(lparam) as i32;
+            let x = winapi::GET_X_LPARAM(lparam) as i32;
+            let y = winapi::GET_Y_LPARAM(lparam) as i32;
 
             send_event(window, MouseMoved(x, y));
 
             0
         },
 
-        WM_MOUSEWHEEL => {
+        winapi::WM_MOUSEWHEEL => {
             use events::Event::MouseWheel;
             use events::MouseScrollDelta::LineDelta;
             use events::TouchPhase;
 
             let value = (wparam >> 16) as i16;
             let value = value as i32;
-            let value = value as f32 / WHEEL_DELTA as f32;
+            let value = value as f32 / winapi::WHEEL_DELTA as f32;
 
             send_event(window, MouseWheel(LineDelta(0.0, value), TouchPhase::Moved, None));
 
             0
         },
 
-        WM_KEYDOWN | WM_SYSKEYDOWN => {
+        winapi::WM_KEYDOWN | winapi::WM_SYSKEYDOWN => {
             use events::Event::KeyboardInput;
             use events::ElementState::Pressed;
-            if msg == WM_SYSKEYDOWN && wparam as i32 == VK_F4 {
-                DefWindowProcW(window, msg, wparam, lparam)
+            if msg == winapi::WM_SYSKEYDOWN && wparam as i32 == winapi::VK_F4 {
+                user32::DefWindowProcW(window, msg, wparam, lparam)
             } else {
                 let (scancode, vkey) = event::vkeycode_to_element(wparam, lparam);
                 send_event(window, KeyboardInput(Pressed, scancode, vkey));
@@ -166,7 +157,7 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
             }
         },
 
-        WM_KEYUP | WM_SYSKEYUP => {
+        winapi::WM_KEYUP | winapi::WM_SYSKEYUP => {
             use events::Event::KeyboardInput;
             use events::ElementState::Released;
             let (scancode, vkey) = event::vkeycode_to_element(wparam, lparam);
@@ -174,7 +165,7 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
             0
         },
 
-        WM_LBUTTONDOWN => {
+        winapi::WM_LBUTTONDOWN => {
             use events::Event::MouseInput;
             use events::MouseButton::Left;
             use events::ElementState::Pressed;
@@ -182,7 +173,7 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
             0
         },
 
-        WM_LBUTTONUP => {
+        winapi::WM_LBUTTONUP => {
             use events::Event::MouseInput;
             use events::MouseButton::Left;
             use events::ElementState::Released;
@@ -190,7 +181,7 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
             0
         },
 
-        WM_RBUTTONDOWN => {
+        winapi::WM_RBUTTONDOWN => {
             use events::Event::MouseInput;
             use events::MouseButton::Right;
             use events::ElementState::Pressed;
@@ -198,7 +189,7 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
             0
         },
 
-        WM_RBUTTONUP => {
+        winapi::WM_RBUTTONUP => {
             use events::Event::MouseInput;
             use events::MouseButton::Right;
             use events::ElementState::Released;
@@ -206,7 +197,7 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
             0
         },
 
-        WM_MBUTTONDOWN => {
+        winapi::WM_MBUTTONDOWN => {
             use events::Event::MouseInput;
             use events::MouseButton::Middle;
             use events::ElementState::Pressed;
@@ -214,7 +205,7 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
             0
         },
 
-        WM_MBUTTONUP => {
+        winapi::WM_MBUTTONUP => {
             use events::Event::MouseInput;
             use events::MouseButton::Middle;
             use events::ElementState::Released;
@@ -222,57 +213,57 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
             0
         },
 
-        WM_XBUTTONDOWN => {
+        winapi::WM_XBUTTONDOWN => {
             use events::Event::MouseInput;
             use events::MouseButton::Other;
             use events::ElementState::Pressed;
-            let xbutton = HIWORD(wparam as DWORD) as c_int; // waiting on PR for winapi to add GET_XBUTTON_WPARAM
+            let xbutton = winapi::HIWORD(wparam as winapi::DWORD) as winapi::c_int; // waiting on PR for winapi to add GET_XBUTTON_WPARAM
             send_event(window, MouseInput(Pressed, Other(xbutton as u8), None));
             0
         },
 
-        WM_XBUTTONUP => {
+        winapi::WM_XBUTTONUP => {
             use events::Event::MouseInput;
             use events::MouseButton::Other;
             use events::ElementState::Released;
-            let xbutton = HIWORD(wparam as DWORD) as c_int;
+            let xbutton = winapi::HIWORD(wparam as winapi::DWORD) as winapi::c_int; 
             send_event(window, MouseInput(Released, Other(xbutton as u8), None));
             0
         },
 
-        WM_INPUT => {
-            let mut data: RAWINPUT = mem::uninitialized();
-            let mut data_size = mem::size_of::<RAWINPUT>() as UINT;
-            GetRawInputData(mem::transmute(lparam), RID_INPUT,
+        winapi::WM_INPUT => {
+            let mut data: winapi::RAWINPUT = mem::uninitialized();
+            let mut data_size = mem::size_of::<winapi::RAWINPUT>() as winapi::UINT;
+            user32::GetRawInputData(mem::transmute(lparam), winapi::RID_INPUT,
                                     mem::transmute(&mut data), &mut data_size,
-                                    mem::size_of::<RAWINPUTHEADER>() as UINT);
+                                    mem::size_of::<winapi::RAWINPUTHEADER>() as winapi::UINT);
 
-            if data.header.dwType == RIM_TYPEMOUSE {
-                let _x = data.data.mouse().lLastX;  // FIXME: this is not always the relative movement
-                let _y = data.data.mouse().lLastY;
+            if data.header.dwType == winapi::RIM_TYPEMOUSE {
+                let _x = data.mouse.lLastX;  // FIXME: this is not always the relative movement
+                let _y = data.mouse.lLastY;
                 // TODO:
                 //send_event(window, Event::MouseRawMovement { x: x, y: y });
 
                 0
 
             } else {
-                DefWindowProcW(window, msg, wparam, lparam)
+                user32::DefWindowProcW(window, msg, wparam, lparam)
             }
         },
 
-        WM_SETFOCUS => {
+        winapi::WM_SETFOCUS => {
             use events::Event::Focused;
             send_event(window, Focused(true));
             0
         },
 
-        WM_KILLFOCUS => {
+        winapi::WM_KILLFOCUS => {
             use events::Event::Focused;
             send_event(window, Focused(false));
             0
         },
 
-        WM_SETCURSOR => {
+        winapi::WM_SETCURSOR => {
             CONTEXT_STASH.with(|context_stash| {
                 let cstash = context_stash.borrow();
                 let cstash = cstash.as_ref();
@@ -282,12 +273,12 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
                     if let Ok(window_state) = cstash.window_state.lock() {
                         match window_state.cursor_state {
                             CursorState::Normal => {
-                                SetCursor(LoadCursorW(
+                                user32::SetCursor(user32::LoadCursorW(
                                         ptr::null_mut(),
                                         window_state.cursor));
                             },
                             CursorState::Grab | CursorState::Hide => {
-                                SetCursor(ptr::null_mut());
+                                user32::SetCursor(ptr::null_mut());
                             }
                         }
                     }
@@ -300,29 +291,29 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
             0
         },
 
-        WM_DROPFILES => {
+        winapi::WM_DROPFILES => {
             use events::Event::DroppedFile;
 
-            let hdrop = wparam as HDROP;
-            let mut pathbuf: [u16; MAX_PATH] = mem::uninitialized();
-            let num_drops = DragQueryFileW(hdrop, 0xFFFFFFFF, ptr::null_mut(), 0);
+            let hdrop = wparam as winapi::HDROP;
+            let mut pathbuf: [u16; winapi::MAX_PATH] = mem::uninitialized();
+            let num_drops = shell32::DragQueryFileW(hdrop, 0xFFFFFFFF, ptr::null_mut(), 0);
 
             for i in 0..num_drops {
-                let nch = DragQueryFileW(hdrop, i, pathbuf.as_mut_ptr(),
-                                                  MAX_PATH as u32) as usize;
+                let nch = shell32::DragQueryFileW(hdrop, i, pathbuf.as_mut_ptr(),
+                                                  winapi::MAX_PATH as u32) as usize;
                 if nch > 0 {
                     send_event(window, DroppedFile(OsString::from_wide(&pathbuf[0..nch]).into()));
                 }
             }
 
-            DragFinish(hdrop);
+            shell32::DragFinish(hdrop);
             0
         },
 
-        WM_GETMINMAXINFO => {
+        winapi::WM_GETMINMAXINFO => {
             let mut mmi = lparam as *mut MinMaxInfo;
-            //(*mmi).max_position = POINT { x: -8, y: -8 }; // The upper left corner of the window if it were maximized on the primary monitor.
-            //(*mmi).max_size = POINT { x: .., y: .. }; // The dimensions of the primary monitor.
+            //(*mmi).max_position = winapi::POINT { x: -8, y: -8 }; // The upper left corner of the window if it were maximized on the primary monitor.
+            //(*mmi).max_size = winapi::POINT { x: .., y: .. }; // The dimensions of the primary monitor.
 
             CONTEXT_STASH.with(|context_stash| {
                 match context_stash.borrow().as_ref() {
@@ -331,14 +322,14 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
 
                         match window_state.attributes.min_dimensions {
                             Some((width, height)) => {
-                                (*mmi).min_track = POINT { x: width as i32, y: height as i32 };
+                                (*mmi).min_track = winapi::POINT { x: width as i32, y: height as i32 };
                             },
                             None => { }
                         }
 
                         match window_state.attributes.max_dimensions {
                             Some((width, height)) => {
-                                (*mmi).max_track = POINT { x: width as i32, y: height as i32 };
+                                (*mmi).max_track = winapi::POINT { x: width as i32, y: height as i32 };
                             },
                             None => { }
                         }
@@ -356,7 +347,7 @@ pub unsafe extern "system" fn callback(window: HWND, msg: UINT,
         },
 
         _ => {
-            DefWindowProcW(window, msg, wparam, lparam)
+            user32::DefWindowProcW(window, msg, wparam, lparam)
         }
     }
 }

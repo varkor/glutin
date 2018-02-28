@@ -37,7 +37,12 @@ core-foundation = "0.5"
 core-graphics = "0.13"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-winapi = { version = "0.3", features = ["winuser", "winnt", "wingdi", "dwmapi", "shellapi", "windowsx", "libloaderapi", "processthreadsapi"] }
+winapi = "0.2"
+shell32-sys = "0.1"
+gdi32-sys = "0.2"
+user32-sys = "0.2"
+kernel32-sys = "0.2"
+dwmapi-sys = "0.1"
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os="dragonfly", target_os="openbsd"))'.dependencies]
 image = { version = "0.18", optional = true }
