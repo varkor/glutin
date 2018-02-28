@@ -1,20 +1,16 @@
+use winapi;
+use user32;
+
 use std::collections::VecDeque;
 use std::mem;
 
 use native_monitor::NativeMonitorId;
-use winapi::um::winnt::WCHAR;
-use winapi::um::wingdi::{DEVMODEW, DISPLAY_DEVICE_PRIMARY_DEVICE};
-use winapi::um::wingdi::{DISPLAY_DEVICE_MIRRORING_DRIVER, DISPLAY_DEVICE_ACTIVE};
-use winapi::um::wingdi::{DISPLAY_DEVICEW};
-use winapi::shared::windef::POINTL;
-use winapi::shared::minwindef::{DWORD, WORD};
-use winapi::um::winuser::{ENUM_CURRENT_SETTINGS, EnumDisplayDevicesW, EnumDisplaySettingsExW};
 
 /// Win32 implementation of the main `MonitorId` object.
 #[derive(Clone)]
 pub struct MonitorId {
     /// The system name of the adapter.
-    adapter_name: [WCHAR; 32],
+    adapter_name: [winapi::WCHAR; 32],
 
     /// The system name of the monitor.
     monitor_name: String,
@@ -24,7 +20,7 @@ pub struct MonitorId {
 
     /// See the `StateFlags` element here:
     /// http://msdn.microsoft.com/en-us/library/dd183569(v=vs.85).aspx
-    flags: DWORD,
+    flags: winapi::DWORD,
 
     /// True if this is the primary monitor.
     primary: bool,
@@ -39,7 +35,7 @@ pub struct MonitorId {
 }
 
 struct DeviceEnumerator {
-    parent_device: *const WCHAR,
+    parent_device: *const winapi::WCHAR,
     current_index: u32,
 }
 
@@ -52,7 +48,7 @@ impl DeviceEnumerator {
         }
     }
 
-    fn monitors(adapter_name: *const WCHAR) -> DeviceEnumerator {
+    fn monitors(adapter_name: *const winapi::WCHAR) -> DeviceEnumerator {
         DeviceEnumerator {
             parent_device: adapter_name,
             current_index: 0
@@ -61,23 +57,23 @@ impl DeviceEnumerator {
 }
 
 impl Iterator for DeviceEnumerator {
-    type Item = DISPLAY_DEVICEW;
-    fn next(&mut self) -> Option<DISPLAY_DEVICEW> {
+    type Item = winapi::DISPLAY_DEVICEW;
+    fn next(&mut self) -> Option<winapi::DISPLAY_DEVICEW> {
         use std::mem;
         loop {
-            let mut output: DISPLAY_DEVICEW = unsafe { mem::zeroed() };
-            output.cb = mem::size_of::<DISPLAY_DEVICEW>() as DWORD;
+            let mut output: winapi::DISPLAY_DEVICEW = unsafe { mem::zeroed() };
+            output.cb = mem::size_of::<winapi::DISPLAY_DEVICEW>() as winapi::DWORD;
 
-            if unsafe { EnumDisplayDevicesW(self.parent_device,
-                self.current_index as DWORD, &mut output, 0) } == 0
+            if unsafe { user32::EnumDisplayDevicesW(self.parent_device,
+                self.current_index as winapi::DWORD, &mut output, 0) } == 0
             {
                 // the device doesn't exist, which means we have finished enumerating
                 break;
             }
             self.current_index += 1;
 
-            if  (output.StateFlags & DISPLAY_DEVICE_ACTIVE) == 0 ||
-                (output.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER) != 0
+            if  (output.StateFlags & winapi::DISPLAY_DEVICE_ACTIVE) == 0 ||
+                (output.StateFlags & winapi::DISPLAY_DEVICE_MIRRORING_DRIVER) != 0
             {
                 // the device is not active
                 // the Win32 api usually returns a lot of inactive devices
@@ -90,7 +86,7 @@ impl Iterator for DeviceEnumerator {
     }
 }
 
-fn wchar_as_string(wchar: &[WCHAR]) -> String {
+fn wchar_as_string(wchar: &[winapi::WCHAR]) -> String {
     String::from_utf16_lossy(wchar)
         .trim_right_matches(0 as char)
         .to_string()
@@ -104,17 +100,17 @@ pub fn get_available_monitors() -> VecDeque<MonitorId> {
     for adapter in DeviceEnumerator::adapters() {
         // getting the position
         let (position, dimensions) = unsafe {
-            let mut dev: DEVMODEW = mem::zeroed();
-            dev.dmSize = mem::size_of::<DEVMODEW>() as WORD;
+            let mut dev: winapi::DEVMODEW = mem::zeroed();
+            dev.dmSize = mem::size_of::<winapi::DEVMODEW>() as winapi::WORD;
 
-            if EnumDisplaySettingsExW(adapter.DeviceName.as_ptr(), 
-                ENUM_CURRENT_SETTINGS,
+            if user32::EnumDisplaySettingsExW(adapter.DeviceName.as_ptr(), 
+                winapi::ENUM_CURRENT_SETTINGS,
                 &mut dev, 0) == 0
             {
                 continue;
             }
 
-            let point: &POINTL = mem::transmute(&dev.u1);
+            let point: &winapi::POINTL = mem::transmute(&dev.union1);
             let position = (point.x as u32, point.y as u32);
 
             let dimensions = (dev.dmPelsWidth as u32, dev.dmPelsHeight as u32);
@@ -129,7 +125,7 @@ pub fn get_available_monitors() -> VecDeque<MonitorId> {
                 monitor_name: wchar_as_string(&monitor.DeviceName),
                 readable_name: wchar_as_string(&monitor.DeviceString),
                 flags: monitor.StateFlags,
-                primary: (adapter.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0 &&
+                primary: (adapter.StateFlags & winapi::DISPLAY_DEVICE_PRIMARY_DEVICE) != 0 &&
                          num == 0,
                 position: position,
                 dimensions: dimensions,
@@ -176,7 +172,7 @@ impl MonitorId {
     /// This is a Win32-only function for `MonitorId` that returns the system name of the adapter
     /// device.
     #[inline]
-    pub fn get_adapter_name(&self) -> &[WCHAR] {
+    pub fn get_adapter_name(&self) -> &[winapi::WCHAR] {
         &self.adapter_name
     }
 

@@ -23,22 +23,9 @@ use WindowAttributes;
 
 pub use self::monitor::{MonitorId, get_available_monitors, get_primary_monitor};
 
-use winapi::shared::windef::RECT;
-use winapi::ctypes::wchar_t;
-use winapi::um::winuser::{IDC_ARROW, IDC_CROSS, IDC_HAND, IDC_HELP, WM_DESTROY};
-use winapi::um::winuser::{IDC_IBEAM, IDC_NO, IDC_SIZENS, IDC_SIZEWE, IDC_WAIT};
-use winapi::um::winuser::{SWP_NOMOVE, SWP_NOREPOSITION, SWP_NOSIZE, SWP_NOZORDER};
-use winapi::um::winuser::{GWL_EXSTYLE, GWL_STYLE, WINDOWPLACEMENT, PostMessageA};
-use winapi::um::winuser::{SW_SHOW, SW_HIDE, RegisterWindowMessageA, DestroyWindow};
-use winapi::um::winuser::{PostMessageW, ShowWindow, GetWindowPlacement};
-use winapi::um::winuser::{SetCursorPos, SetWindowPos, UpdateWindow};
-use winapi::um::winuser::{ClientToScreen, AttachThreadInput, ClipCursor};
-use winapi::um::winuser::{GetClientRect, GetMenu, GetWindowLongA, GetWindowThreadProcessId};
-use winapi::um::winuser::{AdjustWindowRectEx, GetWindowRect, SetWindowTextW};
-use winapi::um::winnt::{LPCWSTR, LONG};
-use winapi::um::processthreadsapi::GetCurrentThreadId;
-use winapi::shared::minwindef::{BOOL, DWORD, UINT};
-use winapi::shared::windef::{HDC, HWND, POINT};
+use winapi;
+use user32;
+use kernel32;
 
 use api::wgl::Context as WglContext;
 use api::egl::Context as EglContext;
@@ -52,11 +39,11 @@ mod init;
 mod monitor;
 
 lazy_static! {
-    static ref WAKEUP_MSG_ID: u32 = unsafe { RegisterWindowMessageA("Glutin::EventID".as_ptr() as *const i8) };
+    static ref WAKEUP_MSG_ID: u32 = unsafe { user32::RegisterWindowMessageA("Glutin::EventID".as_ptr() as *const i8) };
 }
 
 /// Cursor
-pub type Cursor = *const wchar_t;
+pub type Cursor = *const winapi::wchar_t;
 
 /// Contains information about states and the window for the callback.
 #[derive(Clone)]
@@ -92,20 +79,20 @@ enum Context {
 /// A simple wrapper that destroys the window when it is destroyed.
 // FIXME: remove `pub` (https://github.com/rust-lang/rust/issues/23585)
 #[doc(hidden)]
-pub struct WindowWrapper(pub HWND, pub HDC);
+pub struct WindowWrapper(pub winapi::HWND, pub winapi::HDC);
 
 impl Drop for WindowWrapper {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            DestroyWindow(self.0);
+            user32::DestroyWindow(self.0);
         }
     }
 }
 
 #[derive(Clone)]
 pub struct WindowProxy {
-    hwnd: HWND,
+    hwnd: winapi::HWND,
 }
 
 unsafe impl Send for WindowProxy {}
@@ -115,7 +102,7 @@ impl WindowProxy {
     #[inline]
     pub fn wakeup_event_loop(&self) {
         unsafe {
-            PostMessageA(self.hwnd, *WAKEUP_MSG_ID, 0, 0);
+            user32::PostMessageA(self.hwnd, *WAKEUP_MSG_ID, 0, 0);
         }
     }
 }
@@ -144,21 +131,21 @@ impl Window {
                                    .collect::<Vec<_>>();
 
         unsafe {
-            SetWindowTextW(self.window.0, text.as_ptr() as LPCWSTR);
+            user32::SetWindowTextW(self.window.0, text.as_ptr() as winapi::LPCWSTR);
         }
     }
 
     #[inline]
     pub fn show(&self) {
         unsafe {
-            ShowWindow(self.window.0, SW_SHOW);
+            user32::ShowWindow(self.window.0, winapi::SW_SHOW);
         }
     }
 
     #[inline]
     pub fn hide(&self) {
         unsafe {
-            ShowWindow(self.window.0, SW_HIDE);
+            user32::ShowWindow(self.window.0, winapi::SW_HIDE);
         }
     }
 
@@ -166,10 +153,10 @@ impl Window {
     pub fn get_position(&self) -> Option<(i32, i32)> {
         use std::mem;
 
-        let mut placement: WINDOWPLACEMENT = unsafe { mem::zeroed() };
-        placement.length = mem::size_of::<WINDOWPLACEMENT>() as UINT;
+        let mut placement: winapi::WINDOWPLACEMENT = unsafe { mem::zeroed() };
+        placement.length = mem::size_of::<winapi::WINDOWPLACEMENT>() as winapi::UINT;
 
-        if unsafe { GetWindowPlacement(self.window.0, &mut placement) } == 0 {
+        if unsafe { user32::GetWindowPlacement(self.window.0, &mut placement) } == 0 {
             return None
         }
 
@@ -182,18 +169,18 @@ impl Window {
         use libc;
 
         unsafe {
-            SetWindowPos(self.window.0, ptr::null_mut(), x as libc::c_int, y as libc::c_int,
-                0, 0, SWP_NOZORDER | SWP_NOSIZE);
-            UpdateWindow(self.window.0);
+            user32::SetWindowPos(self.window.0, ptr::null_mut(), x as libc::c_int, y as libc::c_int,
+                0, 0, winapi::SWP_NOZORDER | winapi::SWP_NOSIZE);
+            user32::UpdateWindow(self.window.0);
         }
     }
 
     /// See the docs in the crate root file.
     #[inline]
     pub fn get_inner_size(&self) -> Option<(u32, u32)> {
-        let mut rect: RECT = unsafe { mem::uninitialized() };
+        let mut rect: winapi::RECT = unsafe { mem::uninitialized() };
 
-        if unsafe { GetClientRect(self.window.0, &mut rect) } == 0 {
+        if unsafe { user32::GetClientRect(self.window.0, &mut rect) } == 0 {
             return None
         }
 
@@ -206,9 +193,9 @@ impl Window {
     /// See the docs in the crate root file.
     #[inline]
     pub fn get_outer_size(&self) -> Option<(u32, u32)> {
-        let mut rect: RECT = unsafe { mem::uninitialized() };
+        let mut rect: winapi::RECT = unsafe { mem::uninitialized() };
 
-        if unsafe { GetWindowRect(self.window.0, &mut rect) } == 0 {
+        if unsafe { user32::GetWindowRect(self.window.0, &mut rect) } == 0 {
             return None
         }
 
@@ -224,17 +211,17 @@ impl Window {
 
         unsafe {
             // Calculate the outer size based upon the specified inner size
-            let mut rect = RECT { top: 0, left: 0, bottom: y as LONG, right: x as LONG };
-            let dw_style = GetWindowLongA(self.window.0, GWL_STYLE) as DWORD;
-            let b_menu = !GetMenu(self.window.0).is_null() as BOOL;
-            let dw_style_ex = GetWindowLongA(self.window.0, GWL_EXSTYLE) as DWORD;
-            AdjustWindowRectEx(&mut rect, dw_style, b_menu, dw_style_ex);
+            let mut rect = winapi::RECT { top: 0, left: 0, bottom: y as winapi::LONG, right: x as winapi::LONG };
+            let dw_style = user32::GetWindowLongA(self.window.0, winapi::GWL_STYLE) as winapi::DWORD;
+            let b_menu = !user32::GetMenu(self.window.0).is_null() as winapi::BOOL;
+            let dw_style_ex = user32::GetWindowLongA(self.window.0, winapi::GWL_EXSTYLE) as winapi::DWORD;
+            user32::AdjustWindowRectEx(&mut rect, dw_style, b_menu, dw_style_ex);
             let outer_x = (rect.right - rect.left).abs() as libc::c_int;
             let outer_y = (rect.top - rect.bottom).abs() as libc::c_int;
 
-            SetWindowPos(self.window.0, ptr::null_mut(), 0, 0, outer_x, outer_y,
-                SWP_NOZORDER | SWP_NOREPOSITION | SWP_NOMOVE);
-            UpdateWindow(self.window.0);
+            user32::SetWindowPos(self.window.0, ptr::null_mut(), 0, 0, outer_x, outer_y,
+                winapi::SWP_NOZORDER | winapi::SWP_NOREPOSITION | winapi::SWP_NOMOVE);
+            user32::UpdateWindow(self.window.0);
         }
     }
 
@@ -279,20 +266,20 @@ impl Window {
     #[inline]
     pub fn set_cursor(&self, _cursor: MouseCursor) {
         let cursor_id = match _cursor {
-            MouseCursor::Arrow | MouseCursor::Default => IDC_ARROW,
-            MouseCursor::Hand => IDC_HAND,
-            MouseCursor::Crosshair => IDC_CROSS,
-            MouseCursor::Text | MouseCursor::VerticalText => IDC_IBEAM,
-            MouseCursor::NotAllowed | MouseCursor::NoDrop => IDC_NO,
-            MouseCursor::EResize => IDC_SIZEWE,
-            MouseCursor::NResize => IDC_SIZENS,
-            MouseCursor::WResize => IDC_SIZEWE,
-            MouseCursor::SResize => IDC_SIZENS,
-            MouseCursor::EwResize | MouseCursor::ColResize => IDC_SIZEWE,
-            MouseCursor::NsResize | MouseCursor::RowResize => IDC_SIZENS,
-            MouseCursor::Wait | MouseCursor::Progress => IDC_WAIT,
-            MouseCursor::Help => IDC_HELP,
-            _ => IDC_ARROW, // use arrow for the missing cases.
+            MouseCursor::Arrow | MouseCursor::Default => winapi::IDC_ARROW,
+            MouseCursor::Hand => winapi::IDC_HAND,
+            MouseCursor::Crosshair => winapi::IDC_CROSS,
+            MouseCursor::Text | MouseCursor::VerticalText => winapi::IDC_IBEAM,
+            MouseCursor::NotAllowed | MouseCursor::NoDrop => winapi::IDC_NO,
+            MouseCursor::EResize => winapi::IDC_SIZEWE,
+            MouseCursor::NResize => winapi::IDC_SIZENS,
+            MouseCursor::WResize => winapi::IDC_SIZEWE,
+            MouseCursor::SResize => winapi::IDC_SIZENS,
+            MouseCursor::EwResize | MouseCursor::ColResize => winapi::IDC_SIZEWE,
+            MouseCursor::NsResize | MouseCursor::RowResize => winapi::IDC_SIZENS,
+            MouseCursor::Wait | MouseCursor::Progress => winapi::IDC_WAIT,
+            MouseCursor::Help => winapi::IDC_HELP,
+            _ => winapi::IDC_ARROW, // use arrow for the missing cases.
         };
 
         let mut cur = self.window_state.lock().unwrap();
@@ -303,10 +290,10 @@ impl Window {
     pub fn set_cursor_state(&self, state: CursorState) -> Result<(), String> {
         let mut current_state = self.window_state.lock().unwrap();
 
-        let foreground_thread_id = unsafe { GetWindowThreadProcessId(self.window.0, ptr::null_mut()) };
-        let current_thread_id = unsafe { GetCurrentThreadId() };
+        let foreground_thread_id = unsafe { user32::GetWindowThreadProcessId(self.window.0, ptr::null_mut()) };
+        let current_thread_id = unsafe { kernel32::GetCurrentThreadId() };
 
-        unsafe { AttachThreadInput(foreground_thread_id, current_thread_id, 1) };
+        unsafe { user32::AttachThreadInput(foreground_thread_id, current_thread_id, 1) };
 
         let res = match (state, current_state.cursor_state) {
             (CursorState::Normal, CursorState::Normal) => Ok(()),
@@ -326,12 +313,12 @@ impl Window {
             (CursorState::Grab, CursorState::Normal) | (CursorState::Grab, CursorState::Hide) => {
                 unsafe {
                     let mut rect = mem::uninitialized();
-                    if GetClientRect(self.window.0, &mut rect) == 0 {
+                    if user32::GetClientRect(self.window.0, &mut rect) == 0 {
                         return Err(format!("GetWindowRect failed"));
                     }
-                    ClientToScreen(self.window.0, mem::transmute(&mut rect.left));
-                    ClientToScreen(self.window.0, mem::transmute(&mut rect.right));
-                    if ClipCursor(&rect) == 0 {
+                    user32::ClientToScreen(self.window.0, mem::transmute(&mut rect.left));
+                    user32::ClientToScreen(self.window.0, mem::transmute(&mut rect.right));
+                    if user32::ClipCursor(&rect) == 0 {
                         return Err(format!("ClipCursor failed"));
                     }
                     current_state.cursor_state = CursorState::Grab;
@@ -341,7 +328,7 @@ impl Window {
 
             (CursorState::Normal, CursorState::Grab) => {
                 unsafe {
-                    if ClipCursor(ptr::null()) == 0 {
+                    if user32::ClipCursor(ptr::null()) == 0 {
                         return Err(format!("ClipCursor failed"));
                     }
                     current_state.cursor_state = CursorState::Normal;
@@ -352,7 +339,7 @@ impl Window {
             _ => unimplemented!(),
         };
 
-        unsafe { AttachThreadInput(foreground_thread_id, current_thread_id, 0) };
+        unsafe { user32::AttachThreadInput(foreground_thread_id, current_thread_id, 0) };
 
         res
     }
@@ -363,17 +350,17 @@ impl Window {
     }
 
     pub fn set_cursor_position(&self, x: i32, y: i32) -> Result<(), ()> {
-        let mut point = POINT {
+        let mut point = winapi::POINT {
             x: x,
             y: y,
         };
 
         unsafe {
-            if ClientToScreen(self.window.0, &mut point) == 0 {
+            if user32::ClientToScreen(self.window.0, &mut point) == 0 {
                 return Err(());
             }
 
-            if SetCursorPos(point.x, point.y) == 0 {
+            if user32::SetCursorPos(point.x, point.y) == 0 {
                 return Err(());
             }
         }
@@ -464,7 +451,7 @@ impl Drop for Window {
         unsafe {
             // we don't call MakeCurrent(0, 0) because we are not sure that the context
             // is still the current one
-            PostMessageW(self.window.0, WM_DESTROY, 0, 0);
+            user32::PostMessageW(self.window.0, winapi::WM_DESTROY, 0, 0);
         }
     }
 }
